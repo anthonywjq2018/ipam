@@ -1,0 +1,40 @@
+# 虚拟环境
+venv/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 数据库文件（运行时生成，不提交）
+data/ipam.db
+data/*.db
+data/*.db-*
+
+# 打包产物
+dist/
+build/
+*.spec
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 测试/覆盖率
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 日志
+*.log
+
+# 临时文件
+*.tmp
+*.bak
+
+# 系统文件
+.DS_Store
+Thumbs.db
