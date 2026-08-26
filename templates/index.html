@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPAM - IP 地址管理系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="/"><i class="bi bi-hdd-network"></i> IPAM</a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/"><i class="bi bi-speedometer2"></i> 仪表盘</a>
+                <a class="nav-link" href="/switches"><i class="bi bi-hdd-rack"></i> 交换机</a>
+                <a class="nav-link" href="/bindings"><i class="bi bi-list-ul"></i> IP-MAC 绑定</a>
+                <a class="nav-link" href="/logs"><i class="bi bi-journal-text"></i> 扫描日志</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <!-- 统计卡片 -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3">
+                <div class="card stat-card bg-primary text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h6 class="card-title">交换机总数</h6>
+                                <h2 id="stat-switches">{{ stats.total_switches }}</h2>
+                            </div>
+                            <i class="bi bi-hdd-rack fs-1 opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-success text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h6 class="card-title">IP-MAC 绑定总数</h6>
+                                <h2 id="stat-bindings">{{ stats.total_bindings }}</h2>
+                            </div>
+                            <i class="bi bi-link-45deg fs-1 opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-info text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h6 class="card-title">活跃绑定</h6>
+                                <h2 id="stat-active">{{ stats.active_bindings }}</h2>
+                            </div>
+                            <i class="bi bi-wifi fs-1 opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card bg-warning text-dark">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h6 class="card-title">已录入人员信息</h6>
+                                <h2 id="stat-person">{{ stats.with_person }}</h2>
+                            </div>
+                            <i class="bi bi-person-check fs-1 opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 快速操作 -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header"><i class="bi bi-lightning-charge"></i> 快速操作</div>
+                    <div class="card-body">
+                        <div class="d-flex gap-2 flex-wrap">
+                            <a href="/switches" class="btn btn-primary"><i class="bi bi-plus-circle"></i> 添加交换机</a>
+                            <a href="/bindings" class="btn btn-outline-primary"><i class="bi bi-search"></i> 查看/编辑绑定</a>
+                            <button class="btn btn-outline-success" onclick="exportCSV()"><i class="bi bi-download"></i> 导出 CSV</button>
+                            <button class="btn btn-outline-info" onclick="importCSV()"><i class="bi bi-upload"></i> 导入 CSV</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header"><i class="bi bi-bar-chart"></i> 按交换机统计</div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-sm mb-0">
+                                <thead><tr><th>交换机</th><th class="text-end">绑定数</th></tr></thead>
+                                <tbody>
+                                    {% for s in stats.by_switch %}
+                                    <tr>
+                                        <td><a href="/switches/{{ loop.index }}">{{ s.name }}</a></td>
+                                        <td class="text-end">{{ s.count }}</td>
+                                    </tr>
+                                    {% else %}
+                                    <tr><td colspan="2" class="text-center text-muted">暂无数据</td></tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 最近扫描日志 -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between">
+                <span><i class="bi bi-clock-history"></i> 最近扫描日志</span>
+                <a href="/logs" class="btn btn-sm btn-outline-secondary">查看全部</a>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0" id="recent-logs">
+                        <thead>
+                            <tr><th>时间</th><th>交换机</th><th>发现</th><th>新增</th><th>更新</th><th>状态</th></tr>
+                        </thead>
+                        <tbody id="logs-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导入 CSV 模态框 -->
+    <div class="modal fade" id="importModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">导入 CSV</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <form id="importForm" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label class="form-label">选择交换机 <span class="text-muted">(可选，仅关联此交换机)</span></label>
+                            <select class="form-select" name="switch_id" id="importSwitch">
+                                <option value="">-- 全部/不关联 --</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">CSV 文件</label>
+                            <input type="file" class="form-control" name="file" accept=".csv" required>
+                            <div class="form-text">需包含表头：ip, mac, vlan, port, interface, person_name, phone, office, department, terminal_type, os_info, device_name, status, notes</div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button class="btn btn-primary" onclick="submitImport()">确认导入</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/app.js"></script>
+    <script>
+        // 初始化导入模态框的交换机下拉框
+        fetch('/api/switches').then(r=>r.json()).then(data=>{
+            const sel = document.getElementById('importSwitch');
+            data.forEach(s => sel.add(new Option(`${s.name} (${s.ip})`, s.id)));
+        });
+    </script>
+</body>
+</html>

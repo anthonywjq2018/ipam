@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IP-MAC 绑定 - IPAM</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="/"><i class="bi bi-hdd-network"></i> IPAM</a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/"><i class="bi bi-speedometer2"></i> 仪表盘</a>
+                <a class="nav-link" href="/switches"><i class="bi bi-hdd-rack"></i> 交换机</a>
+                <a class="nav-link active" href="/bindings"><i class="bi bi-list-ul"></i> IP-MAC 绑定</a>
+                <a class="nav-link" href="/logs"><i class="bi bi-journal-text"></i> 扫描日志</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h3><i class="bi bi-link-45deg"></i> IP-MAC 绑定管理</h3>
+            <div class="btn-group">
+                <button class="btn btn-outline-success" onclick="exportCSV()"><i class="bi bi-download"></i> 导出全部</button>
+                <button class="btn btn-outline-info" onclick="importCSV()"><i class="bi bi-upload"></i> 导入 CSV</button>
+            </div>
+        </div>
+
+        <!-- 搜索筛选 -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <form id="searchForm" class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">搜索</label>
+                        <input type="text" class="form-control" name="search" value="{{ search }}" placeholder="IP / MAC / 姓名 / 手机 / 办公室 / 设备名...">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">交换机</label>
+                        <select class="form-select" name="switch_id">
+                            <option value="">全部</option>
+                            {% for s in switches %}
+                            <option value="{{ s.id }}" {% if s.id == current_switch %}selected{% endif %}>{{ s.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">状态</label>
+                        <select class="form-select" name="status">
+                            <option value="">全部</option>
+                            <option value="active" {% if current_status=='active' %}selected{% endif %}>活跃</option>
+                            <option value="inactive" {% if current_status=='inactive' %}selected{% endif %}>非活跃</option>
+                            <option value="reserved" {% if current_status=='reserved' %}selected{% endif %}>预留</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary w-100"><i class="bi bi-search"></i> 搜索</button>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <a href="/bindings" class="btn btn-outline-secondary w-100">重置</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 列表 -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between">
+                <span>共 {{ total }} 条记录</span>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-primary" onclick="editBinding(null)">编辑选中</button>
+                    <button class="btn btn-outline-danger" onclick="deleteSelectedBindings()">删除选中</button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0" id="bindings-table">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width:40px"><input type="checkbox" id="checkAll"></th>
+                                <th>交换机</th><th>IP</th><th>MAC</th><th>VLAN</th><th>接口</th>
+                                <th>姓名</th><th>手机</th><th>办公室</th><th>部门</th>
+                                <th>终端类型</th><th>操作系统</th><th>设备名</th>
+                                <th>状态</th><th>最后见到</th><th style="width:80px">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card-footer">
+                <nav><ul class="pagination mb-0 justify-content-center" id="pagination"></ul></nav>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑模态框 -->
+    <div class="modal fade" id="editBindingModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title"><i class="bi bi-pencil-square"></i> 编辑 IP-MAC 绑定</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <form id="bindingForm">
+                    <div class="modal-body">
+                        <input type="hidden" name="id" id="bindId">
+                        <div class="row g-3">
+                            <div class="col-md-3"><label class="form-label">交换机</label><input type="text" class="form-control" id="bindSwitchName" readonly></div>
+                            <div class="col-md-3"><label class="form-label">IP *</label><input type="text" class="form-control" name="ip" id="bindIp" readonly></div>
+                            <div class="col-md-3"><label class="form-label">MAC *</label><input type="text" class="form-control" name="mac" id="bindMac" readonly></div>
+                            <div class="col-md-3"><label class="form-label">状态</label>
+                                <select class="form-select" name="status" id="bindStatus">
+                                    <option value="active">活跃</option>
+                                    <option value="inactive">非活跃</option>
+                                    <option value="reserved">预留</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3"><label class="form-label">VLAN</label><input type="text" class="form-control" name="vlan" id="bindVlan"></div>
+                            <div class="col-md-3"><label class="form-label">端口</label><input type="text" class="form-control" name="port" id="bindPort"></div>
+                            <div class="col-md-6"><label class="form-label">接口</label><input type="text" class="form-control" name="interface" id="bindInterface"></div>
+                            <div class="col-md-4"><label class="form-label">姓名</label><input type="text" class="form-control" name="person_name" id="bindName"></div>
+                            <div class="col-md-4"><label class="form-label">手机</label><input type="text" class="form-control" name="phone" id="bindPhone" placeholder="13800138000"></div>
+                            <div class="col-md-4"><label class="form-label">办公室</label><input type="text" class="form-control" name="office" id="bindOffice" placeholder="A栋301"></div>
+                            <div class="col-md-4"><label class="form-label">部门</label><input type="text" class="form-control" name="department" id="bindDept" placeholder="IT部"></div>
+                            <div class="col-md-4"><label class="form-label">终端类型</label>
+                                <select class="form-select" name="terminal_type" id="bindTerm">
+                                    <option value="">未知</option>
+                                    <option value="pc">PC</option>
+                                    <option value="laptop">笔记本</option>
+                                    <option value="phone">手机</option>
+                                    <option value="tablet">平板</option>
+                                    <option value="printer">打印机</option>
+                                    <option value="camera">摄像头</option>
+                                    <option value="iot">IoT设备</option>
+                                    <option value="server">服务器</option>
+                                    <option value="other">其他</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4"><label class="form-label">操作系统</label><input type="text" class="form-control" name="os_info" id="bindOs" placeholder="Windows 11 / macOS / Linux"></div>
+                            <div class="col-md-4"><label class="form-label">设备名</label><input type="text" class="form-control" name="device_name" id="bindDevice" placeholder="DESKTOP-ABC123"></div>
+                        </div>
+                        <div class="mb-3"><label class="form-label">备注</label><textarea class="form-control" name="notes" id="bindNotes" rows="2"></textarea></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg"></i> 保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导入模态框 -->
+    <div class="modal fade" id="importModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title">导入 CSV</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <form id="importForm" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label class="form-label">关联交换机 <span class="text-muted">(可选)</span></label>
+                            <select class="form-select" name="switch_id" id="importSwitch">
+                                <option value="">-- 不关联特定交换机 --</option>
+                                {% for s in switches %}
+                                <option value="{{ s.id }}">{{ s.name }} ({{ s.ip }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">CSV 文件</label>
+                            <input type="file" class="form-control" name="file" accept=".csv" required>
+                            <div class="form-text">表头：ip, mac, vlan, port, interface, person_name, phone, office, department, terminal_type, os_info, device_name, status, notes</div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button class="btn btn-primary" onclick="submitImport()">确认导入</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/bindings.js"></script>
+</body>
+</html>

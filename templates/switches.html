@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>交换机管理 - IPAM</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="/"><i class="bi bi-hdd-network"></i> IPAM</a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/"><i class="bi bi-speedometer2"></i> 仪表盘</a>
+                <a class="nav-link active" href="/switches"><i class="bi bi-hdd-rack"></i> 交换机</a>
+                <a class="nav-link" href="/bindings"><i class="bi bi-list-ul"></i> IP-MAC 绑定</a>
+                <a class="nav-link" href="/logs"><i class="bi bi-journal-text"></i> 扫描日志</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h3><i class="bi bi-hdd-rack"></i> 交换机管理</h3>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSwitchModal"><i class="bi bi-plus-lg"></i> 添加交换机</button>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover" id="switches-table">
+                        <thead>
+                            <tr><th>名称</th><th>IP</th><th>厂商</th><th>位置</th><th>端口</th><th>上次扫描</th><th>操作</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加/编辑交换机模态框 -->
+    <div class="modal fade" id="addSwitchModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5 class="modal-title" id="modalTitle"><i class="bi bi-plus-lg"></i> 添加交换机</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                <form id="switchForm">
+                    <div class="modal-body">
+                        <input type="hidden" name="id" id="switchId">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">名称 *</label>
+                                <input type="text" class="form-control" name="name" id="swName" required placeholder="如: 核心交换机-1F">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">IP 地址 *</label>
+                                <input type="text" class="form-control" name="ip" id="swIp" required placeholder="192.168.1.1">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">SSH 用户名 *</label>
+                                <input type="text" class="form-control" name="username" id="swUser" required placeholder="admin">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">SSH 密码 *</label>
+                                <input type="password" class="form-control" name="password" id="swPass" required placeholder="********">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">端口</label>
+                                <input type="number" class="form-control" name="port" id="swPort" value="22">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">厂商</label>
+                                <select class="form-select" name="vendor" id="swVendor">
+                                    <option value="H3C">H3C / HPE</option>
+                                    <option value="Huawei">Huawei</option>
+                                    <option value="Cisco">Cisco</option>
+                                    <option value="Ruijie">锐捷</option>
+                                    <option value="Other">其他</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">位置</label>
+                                <input type="text" class="form-control" name="location" id="swLoc" placeholder="如: 1楼机房 A 机柜">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">备注</label>
+                            <textarea class="form-control" name="notes" id="swNotes" rows="2" placeholder="备注信息..."></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                        <button type="submit" class="btn btn-primary" id="submitBtn"><i class="bi bi-check-lg"></i> 保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/switches.js"></script>
+</body>
+</html>

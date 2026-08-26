@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+
+# 虚拟环境
+venv/
+__pycache__/
+*.pyc
+
+# 数据库文件（运行时挂载）
+data/ipam.db
+data/*.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# 测试/覆盖率
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 打包产物
+dist/
+build/
+*.spec
+
+# 日志
+*.log
+
+# 临时文件
+*.tmp
+*.bak
+
+# 文档（可选，镜像不需要）
+README.md

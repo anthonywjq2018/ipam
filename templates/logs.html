@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>扫描日志 - IPAM</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="/"><i class="bi bi-hdd-network"></i> IPAM</a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/"><i class="bi bi-speedometer2"></i> 仪表盘</a>
+                <a class="nav-link" href="/switches"><i class="bi bi-hdd-rack"></i> 交换机</a>
+                <a class="nav-link" href="/bindings"><i class="bi bi-list-ul"></i> IP-MAC 绑定</a>
+                <a class="nav-link active" href="/logs"><i class="bi bi-journal-text"></i> 扫描日志</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <h3><i class="bi bi-journal-text"></i> 扫描日志</h3>
+        <div class="card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr><th>时间</th><th>交换机</th><th>发现条数</th><th>新增</th><th>更新</th><th>状态</th><th>消息</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for log in logs %}
+                            <tr>
+                                <td>{{ log.scan_time }}</td>
+                                <td>
+                                    {% if log.switch_name %}
+                                    <a href="/switches/{{ log.switch_id }}">{{ log.switch_name }}</a>
+                                    {% else %}<span class="text-muted">已删除</span>{% endif %}
+                                </td>
+                                <td>{{ log.entries_found }}</td>
+                                <td class="text-success">{{ log.new_entries }}</td>
+                                <td class="text-primary">{{ log.updated_entries }}</td>
+                                <td><span class="badge bg-{{ 'success' if log.status=='success' else 'danger' }}">{{ log.status }}</span></td>
+                                <td class="text-muted small">{{ log.message }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="7" class="text-center text-muted py-4">暂无扫描日志</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

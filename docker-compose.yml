@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  ipam:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ipam:v0.0.1
+    container_name: ipam
+    restart: unless-stopped
+    ports:
+      - "5100:5100"
+    volumes:
+      # 数据持久化：数据库文件
+      - ./data:/app/data
+      # 可选：挂载配置文件（如需修改配置）
+      # - ./config.py:/app/config.py:ro
+    environment:
+      - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5100/api/stats')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# 使用方法：
+# docker compose up -d        # 后台启动
+# docker compose logs -f      # 查看日志
+# docker compose down         # 停止并删除容器
+# docker compose pull && docker compose up -d  # 更新镜像后重启
