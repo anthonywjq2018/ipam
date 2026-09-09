@@ -476,7 +476,7 @@ def get_stats():
     ).fetchone()[0]
     # 按交换机统计
     stats['by_switch'] = [dict(r) for r in conn.execute(
-        "SELECT s.name, COUNT(b.id) as count FROM switches s "
+        "SELECT s.id, s.name, COUNT(b.id) as count FROM switches s "
         "LEFT JOIN ip_mac_bindings b ON s.id=b.switch_id "
         "GROUP BY s.id ORDER BY count DESC"
     ).fetchall()]

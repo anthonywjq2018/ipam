@@ -118,7 +118,8 @@ def api_me():
 @login_required
 def index():
     stats = get_stats()
-    return render_template('index.html', stats=stats)
+    logs = get_scan_logs(limit=10)
+    return render_template('index.html', stats=stats, logs=logs)
 
 
 @app.route('/switches')

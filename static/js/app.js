@@ -111,18 +111,21 @@ function importCSV() {
 function submitImport() {
     const form = document.getElementById('importForm');
     const formData = new FormData(form);
-    const btn = form.querySelector('button[type="button"]');
-    const modal = bootstrap.Modal.getInstance(document.getElementById('importModal'));
+    const modalEl = document.getElementById('importModal');
+    const btn = modalEl.querySelector('.modal-footer .btn-primary');
+    const modal = bootstrap.Modal.getInstance(modalEl);
     
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 导入中...';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 导入中...';
+    }
     
     fetch('/api/import/csv', { method: 'POST', body: formData, credentials: 'same-origin' })
         .then(r => r.json())
         .then(data => {
             if (data.ok) {
                 showToast(data.message, 'success');
-                modal.hide();
+                if (modal) modal.hide();
                 setTimeout(() => location.reload(), 500);
             } else {
                 showToast(data.message, 'danger');
@@ -130,8 +133,10 @@ function submitImport() {
         })
         .catch(err => showToast('导入失败: ' + err.message, 'danger'))
         .finally(() => {
-            btn.disabled = false;
-            btn.innerHTML = '确认导入';
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>确认导入';
+            }
         });
 }
 
