@@ -4,32 +4,132 @@ Flask Web 服务
 """
 import os
 import json
+import hashlib
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
-from db import init_db, get_db, add_switch, update_switch, delete_switch, get_switches, get_switch
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file, session
+from db import init_db, get_db, add_switch, update_switch, delete_switch, get_switches, get_switch, add_user, verify_user
 from db import get_bindings, get_binding, update_binding, delete_binding, import_bindings, log_scan
 from db import get_scan_logs, get_stats, export_all_bindings_csv, import_bindings_csv
 from ssh_handler import scan_switch
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour
 
 
-# ==================== 页面路由 ====================
+# ==================== 认证中间件 ====================
+
+def login_required(f):
+    """登录装饰器"""
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            if request.path.startswith('/api/'):
+                return jsonify({'ok': False, 'message': '请先登录', 'code': 401}), 401
+            return redirect(url_for('login_page'))
+        return f(*args, **kwargs)
+    return decorated
+
+
+def init_default_user():
+    """初始化默认用户（首次启动）"""
+    conn = get_db()
+    row = conn.execute("SELECT COUNT(*) as cnt FROM users").fetchone()
+    conn.close()
+    if row['cnt'] == 0:
+        salt = hashlib.sha256(os.urandom(16)).hexdigest()
+        pwd_hash = hashlib.sha256((salt + 'admin').encode()).hexdigest()
+        # 保存盐值和哈希到同一字段（salt+hash 组合）
+        combined = salt + pwd_hash
+        add_user('admin', combined)
+        return True
+    return False
+
+
+# ==================== 认证路由 ====================
+
+@app.route('/login', methods=['GET', 'POST'])
+def login_page():
+    """登录页面"""
+    if 'user_id' in session:
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        if not username or not password:
+            return render_template('login.html', error='用户名和密码不能为空')
+        pwd_hash = hashlib.sha256(password.encode()).hexdigest()
+        user = verify_user(username, password)
+        if user:
+            session['user_id'] = user['id']
+            session['username'] = user['username']
+            session.permanent = True
+            return redirect(url_for('index'))
+        return render_template('login.html', error='用户名或密码错误')
+    return render_template('login.html', error='')
+
+
+@app.route('/logout')
+def logout():
+    """登出"""
+    session.clear()
+    return redirect(url_for('login_page'))
+
+
+@app.route('/api/login', methods=['POST'])
+def api_login():
+    """API 登录"""
+    data = request.json or request.form
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    if not username or not password:
+        return jsonify({'ok': False, 'message': '用户名和密码不能为空', 'code': 400})
+    pwd_hash = hashlib.sha256(password.encode()).hexdigest()
+    user = verify_user(username, password)
+    if user:
+        session['user_id'] = user['id']
+        session['username'] = user['username']
+        session.permanent = True
+        return jsonify({'ok': True, 'message': '登录成功', 'username': username})
+    return jsonify({'ok': False, 'message': '用户名或密码错误', 'code': 401})
+
+
+@app.route('/api/logout')
+def api_logout():
+    """API 登出"""
+    session.clear()
+    return jsonify({'ok': True, 'message': '已登出'})
+
+
+@app.route('/api/me')
+def api_me():
+    """当前用户信息"""
+    if 'user_id' not in session:
+        return jsonify({'ok': False, 'message': '未登录', 'code': 401})
+    return jsonify({'ok': True, 'username': session.get('username'), 'user_id': session.get('user_id')})
+
+
+
 
 @app.route('/')
+@login_required
 def index():
     stats = get_stats()
     return render_template('index.html', stats=stats)
 
 
 @app.route('/switches')
+@login_required
 def switches_page():
     switches = get_switches()
     return render_template('switches.html', switches=switches)
 
 
 @app.route('/switches/<int:switch_id>')
+@login_required
 def switch_detail(switch_id):
     switch = get_switch(switch_id)
     if not switch:
@@ -40,6 +140,7 @@ def switch_detail(switch_id):
 
 
 @app.route('/bindings')
+@login_required
 def bindings_page():
     page = request.args.get('page', 1, type=int)
     search = request.args.get('search', '').strip()
@@ -54,6 +155,7 @@ def bindings_page():
 
 
 @app.route('/logs')
+@login_required
 def logs_page():
     logs = get_scan_logs(limit=100)
     return render_template('logs.html', logs=logs)
@@ -111,6 +213,20 @@ def api_test_switch(switch_id):
 
 
 # --- 扫描 API ---
+
+@app.route('/api/scan/all', methods=['POST'])
+@login_required
+def api_scan_all_switches():
+    """扫描所有交换机"""
+    from db import batch_scan_all
+    results, total_new, total_updated = batch_scan_all()
+    return jsonify({
+        'ok': True,
+        'message': f'批量扫描完成: 新增 {total_new} 条, 更新 {total_updated} 条',
+        'results': results,
+        'total_new': total_new,
+        'total_updated': total_updated
+    })
 
 @app.route('/api/scan/<int:switch_id>', methods=['POST'])
 def api_scan_switch(switch_id):
@@ -195,7 +311,77 @@ def api_import_csv():
     return jsonify({'ok': True, 'message': f'导入完成: 新增 {new} 条, 更新 {updated} 条'})
 
 
-# --- 统计 API ---
+# --- 用户管理 API ---
+
+@app.route('/api/users', methods=['POST'])
+@login_required
+def api_add_user():
+    """添加用户"""
+    data = request.json or request.form
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    if not username or not password:
+        return jsonify({'ok': False, 'message': '用户名和密码不能为空'})
+    if len(password) < 6:
+        return jsonify({'ok': False, 'message': '密码至少 6 位'})
+    ok, msg = create_user(username, password)
+    return jsonify({'ok': ok, 'message': msg})
+
+
+@app.route('/api/users', methods=['GET'])
+@login_required
+def api_get_users():
+    """获取用户列表"""
+    users = get_users()
+    return jsonify({'ok': True, 'users': users})
+
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+@login_required
+def api_delete_user(user_id):
+    """删除用户"""
+    if user_id == session.get('user_id'):
+        return jsonify({'ok': False, 'message': '不能删除自己的账号'})
+    ok, msg = delete_user(user_id)
+    return jsonify({'ok': ok, 'message': msg})
+
+
+@app.route('/api/users/<int:user_id>', methods=['PUT'])
+@login_required
+def api_update_user(user_id):
+    """更新用户密码"""
+    data = request.json or request.form
+    new_password = data.get('password', '')
+    if not new_password or len(new_password) < 6:
+        return jsonify({'ok': False, 'message': '新密码至少 6 位'})
+    ok, msg = update_user_password(user_id, new_password)
+    return jsonify({'ok': ok, 'message': msg})
+
+
+
+
+# --- 备份维护 API ---
+
+@app.route('/api/backup', methods=['POST'])
+@login_required
+def api_backup():
+    """手动备份数据库"""
+    from db import backup_db
+    try:
+        backup_path = backup_db()
+        return jsonify({'ok': True, 'message': f'备份成功: {os.path.basename(backup_path)}'})
+    except Exception as e:
+        return jsonify({'ok': False, 'message': f'备份失败: {str(e)}'})
+
+
+@app.route('/api/vacuum', methods=['POST'])
+@login_required
+def api_vacuum():
+    """优化数据库"""
+    from db import vacuum_db
+    ok, msg = vacuum_db()
+    return jsonify({'ok': ok, 'message': msg})
+
 
 @app.route('/api/stats')
 def api_stats():
@@ -207,8 +393,12 @@ def api_stats():
 if __name__ == '__main__':
     from config import HOST, PORT, DEBUG
     init_db()
+    init_default_user()
     print(f"\n{'='*50}")
     print(f"  IPAM - IP 地址管理系统")
     print(f"  访问地址: http://localhost:{PORT}")
+    print(f"  默认用户名: admin")
+    print(f"  默认密码: admin")
+    print(f"  首次登录后请立即修改密码")
     print(f"{'='*50}\n")
     app.run(host=HOST, port=PORT, debug=DEBUG)
