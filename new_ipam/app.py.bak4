@@ -1,0 +1,567 @@
+"""
+IPAM 系统 - Flask 应用
+"""
+import os
+import sys
+from pathlib import Path
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session, abort
+from functools import wraps
+from datetime import datetime
+
+from config import DB_TYPE, DB_PATH, HOST, PORT, DEBUG, SECRET_KEY, DATA_DIR
+from db import init_db, get_db
+from services.auth_service import authenticate_user, create_user, get_all_users, update_user, delete_user, get_user_by_id, get_user_permissions, has_permission
+from services.switch_service import add_switch, update_switch, delete_switch, get_switches, get_switch_by_id, test_switch_connection, scan_switch, update_binding_from_arp
+from services.binding_service import get_bindings, get_binding_by_id, get_bindings_by_switch, get_vlans_by_switch, add_binding, update_binding, delete_binding, delete_bindings_by_switch, get_binding_summary, get_bindings_export, get_bindings_by_vlan
+from services.system_service import create_system_config, get_system_config, update_system_config, delete_system_config, get_all_users as get_all_users_service
+
+logger = None
+try:
+    from utils.logger import logger
+except Exception:
+    pass
+
+
+def create_app():
+    """创建 Flask 应用"""
+    app = Flask(__name__, template_folder="templates", static_folder="static")
+    app.config["SECRET_KEY"] = SECRET_KEY
+    app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB 上传限制
+    # 注册上下文处理器，使 now() 在模板中可用
+    @app.context_processor
+    def inject_now():
+        return {'now': lambda: datetime.utcnow}
+    
+    # 初始化数据库
+    init_db()
+    
+    # 注册默认管理员
+    register_default_admin()
+    
+    # 注册错误处理
+    register_error_handlers(app)
+    
+    # 注册路由
+    register_routes(app)
+    
+    return app
+
+
+def register_default_admin():
+    """注册默认管理员"""
+    conn = get_db()
+    cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+    result = cursor.execute(
+        "SELECT id FROM users WHERE username = ?",
+        ("admin",)
+    ).fetchone()
+    
+    if not result:
+        # 默认管理员密码 admin/Admin@123
+        from services.auth_service import hash_password
+        cursor.execute(
+            """
+            INSERT INTO users (username, password_hash, display_name, role, email, is_active)
+            VALUES (?, ?, ?, ?, ?, 1)
+            """,
+            ("admin", hash_password("Admin@123"), "系统管理员", "admin", "admin@ipam.local")
+        )
+        conn.commit()
+        logger.info("默认管理员 admin/Admin@123 已创建")
+    conn.close()
+
+
+def register_error_handlers(app):
+    """注册错误处理"""
+    @app.errorhandler(404)
+    def not_found(error):
+        return jsonify({"ok": False, "message": "404 未找到请求的资源"}), 404
+    
+    @app.errorhandler(500)
+    def internal_error(error):
+        logger.error(f"服务器内部错误: {error}")
+        return jsonify({"ok": False, "message": "服务器内部错误"}), 500
+
+
+def login_required(func):
+    """登录装饰器"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        user = session.get("user")
+        if not user:
+            # 如果是 API 请求或客户端明确接受 JSON，则返回 JSON 错误
+            if request.path.startswith('/api/') or request.accept_mimetypes.best == 'application/json':
+                return jsonify({"ok": False, "message": "请先登录"}), 401
+            # 否则重定向到登录页（HTML 请求）
+            return redirect(url_for('login_page'))
+        return func(*args, **kwargs)
+    return wrapper
+def permission_required(permission: str):
+    """权限装饰器"""
+    def decorator(func):
+        @wraps(func)
+        @login_required
+        def wrapper(*args, **kwargs):
+            user = session.get("user")
+            if not has_permission(user["id"], permission):
+                return jsonify({"ok": False, "message": "权限不足"}), 403
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def register_routes(app):
+    """注册所有路由"""
+    
+    # ==================== 页面路由 ====================
+    
+    @app.route("/")
+    @login_required
+    def index_page():
+        """仪表盘页面"""
+        return render_template("index.html", user=session.get("user"))
+    
+    @app.route("/login")
+    def login_page():
+        """登录页面"""
+        if session.get("user"):
+            return redirect(url_for("index_page"))
+        return render_template("login.html", user=None)
+    
+    @app.route("/logout", methods=["POST"])
+    def logout_page():
+        """退出登录"""
+        session.clear()
+        return redirect(url_for("login_page"))
+    
+    @app.route("/switches")
+    @login_required
+    def switches_page():
+        """交换机管理页面"""
+        return render_template("switches.html", user=session.get("user"), switches=get_switches())
+    
+    @app.route("/switches/<int:switch_id>")
+    @login_required
+    def switch_detail_page(switch_id: int):
+        """交换机详情页面"""
+        switch = get_switch_by_id(switch_id)
+        if not switch:
+            abort(404)
+        bindings = get_bindings_by_switch(switch_id)
+        return render_template("switch_detail.html", user=session.get("user"), switch=switch, bindings=bindings)
+    
+    @app.route("/bindings")
+    @login_required
+    def bindings_page():
+        """IP-MAC 绑定管理页面"""
+        return render_template("bindings.html", user=session.get("user"))
+    
+    @app.route("/users")
+    @login_required
+    def users_page():
+        """用户管理页面"""
+        return render_template("users.html", user=session.get("user"), users=get_all_users())
+    
+    @app.route("/system")
+    @login_required
+    def system_page():
+        """系统管理页面"""
+        return render_template("system.html", user=session.get("user"))
+    
+    # ==================== API - 认证 ====================
+    
+    @app.route("/api/auth/login", methods=["POST"])
+    def api_login():
+        """用户登录"""
+        data = request.get_json(silent=True) or request.form
+        from utils.logger import logger; logger.debug(f"Login data: {data}")
+        print("Login data:", data)
+        username = data.get("username", "")
+        password = data.get("password", "")
+
+        user = authenticate_user(username, password)
+        if not user:
+            return jsonify({"ok": False, "message": "用户名或密码错误"}), 401
+
+        session["user"] = user
+        return jsonify({"ok": True, "user": user})
+    @app.route("/api/auth/logout", methods=["POST"])
+    def api_logout():
+        """退出登录"""
+        session.clear()
+        return jsonify({"ok": True, "message": "已退出登录"})
+    
+    @app.route("/api/auth/me", methods=["GET"])
+    @login_required
+    def api_me():
+        """当前用户信息"""
+        return jsonify({"ok": True, "user": session.get("user")})
+    
+    # ==================== API - 交换机 ====================
+    
+    @app.route("/api/switches", methods=["GET"])
+    @login_required
+    def api_get_switches():
+        """获取交换机列表"""
+        return jsonify({"ok": True, "switches": get_switches()})
+    
+    @app.route("/api/switches", methods=["POST"])
+    @login_required
+    @permission_required("switch:write")
+    def api_add_switch():
+        """添加交换机"""
+        data = request.get_json() or request.form
+        try:
+            ok, msg = add_switch(data)
+            if ok:
+                return jsonify({"ok": True, "message": msg})
+            return jsonify({"ok": False, "message": msg}), 400
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"操作失败: {e}"}), 500
+    
+    @app.route("/api/switches/<int:switch_id>", methods=["GET"])
+    @login_required
+    def api_get_switch(switch_id: int):
+        """获取交换机详情"""
+        switch = get_switch_by_id(switch_id)
+        if not switch:
+            return jsonify({"ok": False, "message": "交换机不存在"}), 404
+        return jsonify({"ok": True, "switch": switch})
+    
+    @app.route("/api/switches/<int:switch_id>", methods=["PUT"])
+    @login_required
+    @permission_required("switch:write")
+    def api_update_switch(switch_id: int):
+        """更新交换机"""
+        data = request.get_json() or request.form
+        try:
+            ok, msg = update_switch(switch_id, data)
+            if ok:
+                return jsonify({"ok": True, "message": msg})
+            return jsonify({"ok": False, "message": msg}), 400
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"操作失败: {e}"}), 500
+    
+    @app.route("/api/switches/<int:switch_id>", methods=["DELETE"])
+    @login_required
+    @permission_required("switch:write")
+    def api_delete_switch(switch_id: int):
+        """删除交换机"""
+        try:
+            ok, msg = delete_switch(switch_id)
+            if ok:
+                return jsonify({"ok": True, "message": msg})
+            return jsonify({"ok": False, "message": msg}), 400
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"操作失败: {e}"}), 500
+    
+    @app.route("/api/switches/<int:switch_id>/test", methods=["POST"])
+    @login_required
+    def api_test_switch(switch_id: int):
+        """测试交换机连通性"""
+        try:
+            ok, msg = test_switch_connection(switch_id)
+            return jsonify({"ok": ok, "message": msg})
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"测试异常: {e}"}), 500
+    
+    @app.route("/api/switches/<int:switch_id>/scan", methods=["POST"])
+    @login_required
+    @permission_required("scan:execute")
+    def api_scan_switch(switch_id: int):
+        """扫描交换机 ARP 表"""
+        try:
+            ok, msg, bindings = scan_switch(switch_id)
+            if ok:
+                updated = update_binding_from_arp(bindings, switch_id)
+                return jsonify({"ok": True, "message": msg, "updated": updated, "bindings": bindings})
+            return jsonify({"ok": False, "message": msg}), 400
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"扫描失败: {e}"}), 500
+    
+    # ==================== API - IP-MAC 绑定 ====================
+    
+    @app.route("/api/bindings", methods=["GET"])
+    @login_required
+    def api_get_bindings():
+        """获取 IP-MAC 绑定列表"""
+        page = request.args.get("page", 1, type=int)
+        per_page = request.args.get("per_page", 50, type=int)
+        search = request.args.get("search", "")
+        switch_id = request.args.get("switch_id", None, type=int)
+        status = request.args.get("status", "")
+        vlan = request.args.get("vlan", None, type=int)
+        
+        bindings, total = get_bindings(page, per_page, search, switch_id, status, vlan)
+        return jsonify({"ok": True, "bindings": bindings, "total": total, "page": page, "per_page": per_page})
+    
+    @app.route("/api/bindings", methods=["POST"])
+    @login_required
+    @permission_required("binding:write")
+    def api_add_binding():
+        """添加绑定"""
+        data = request.get_json() or request.form
+        try:
+            ok, msg = add_binding(data)
+            if ok:
+                return jsonify({"ok": True, "message": msg})
+            return jsonify({"ok": False, "message": msg}), 400
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"操作失败: {e}"}), 500
+    
+    @app.route("/api/bindings/<int:binding_id>", methods=["GET"])
+    @login_required
+    def api_get_binding(binding_id: int):
+        """获取绑定详情"""
+        binding = get_binding_by_id(binding_id)
+        if not binding:
+            return jsonify({"ok": False, "message": "绑定不存在"}), 404
+        return jsonify({"ok": True, "binding": binding})
+    
+    @app.route("/api/bindings/<int:binding_id>", methods=["PUT"])
+    @login_required
+    @permission_required("binding:write")
+    def api_update_binding(binding_id: int):
+        """更新绑定"""
+        data = request.get_json() or request.form
+        try:
+            ok, msg = update_binding(binding_id, data)
+            if ok:
+                return jsonify({"ok": True, "message": msg})
+            return jsonify({"ok": False, "message": msg}), 400
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"操作失败: {e}"}), 500
+    
+    @app.route("/api/bindings/<int:binding_id>", methods=["DELETE"])
+    @login_required
+    @permission_required("binding:delete")
+    def api_delete_binding(binding_id: int):
+        """删除绑定"""
+        try:
+            ok, msg = delete_binding(binding_id)
+            if ok:
+                return jsonify({"ok": True, "message": msg})
+            return jsonify({"ok": False, "message": msg}), 400
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"操作失败: {e}"}), 500
+    
+    @app.route("/api/bindings/batch-delete", methods=["POST"])
+    @login_required
+    @permission_required("binding:delete")
+    def api_batch_delete_bindings():
+        """批量删除绑定"""
+        data = request.get_json() or request.form
+        ids = data.get("ids", [])
+        if not ids:
+            return jsonify({"ok": False, "message": "请选择要删除的记录"}), 400
+        
+        deleted = 0
+        for binding_id in ids:
+            ok, msg = delete_binding(binding_id)
+            if ok:
+                deleted += 1
+        
+        return jsonify({"ok": True, "message": f"已删除 {deleted} 条记录", "deleted": deleted})
+    
+    @app.route("/api/bindings/export", methods=["GET"])
+    @login_required
+    def api_export_bindings():
+        """导出绑定列表"""
+        return jsonify({"ok": True, "bindings": get_bindings_export()})
+    
+    @app.route("/api/bindings/by-switch", methods=["GET"])
+    @login_required
+    def api_get_bindings_by_switch():
+        """获取指定交换机的绑定列表"""
+        switch_id = request.args.get("switch_id", None, type=int)
+        bindings = get_bindings_by_switch(switch_id)
+        return jsonify({"ok": True, "bindings": bindings})
+    
+    @app.route("/api/bindings/vlans", methods=["GET"])
+    @login_required
+    def api_get_vlans_by_switch():
+        """获取指定交换机的 VLAN 列表"""
+        switch_id = request.args.get("switch_id", None, type=int)
+        vlans = get_vlans_by_switch(switch_id)
+        return jsonify({"ok": True, "vlans": vlans})
+    
+    @app.route("/api/bindings/summary", methods=["GET"])
+    @login_required
+    def api_get_binding_summary():
+        """获取绑定统计"""
+        summary = get_binding_summary()
+        return jsonify({"ok": True, "summary": summary})
+    
+    # ==================== API - 用户 ====================
+    
+    @app.route("/api/users", methods=["GET"])
+    @login_required
+    @permission_required("user:read")
+    def api_get_users():
+        """获取用户列表"""
+        return jsonify({"ok": True, "users": get_all_users()})
+    
+    @app.route("/api/users", methods=["POST"])
+    @login_required
+    @permission_required("user:write")
+    def api_add_user():
+        """添加用户"""
+        data = request.get_json() or request.form
+        try:
+            user = create_user(
+                username=data.get("username", ""),
+                password=data.get("password", ""),
+                display_name=data.get("display_name", ""),
+                role=data.get("role", "viewer"),
+                email=data.get("email", "")
+            )
+            if user:
+                return jsonify({"ok": True, "user": user})
+            return jsonify({"ok": False, "message": "用户名已存在"}), 400
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"操作失败: {e}"}), 500
+    
+    @app.route("/api/users/<int:user_id>", methods=["GET"])
+    @login_required
+    @permission_required("user:read")
+    def api_get_user(user_id: int):
+        """获取用户详情"""
+        user = get_user_by_id(user_id)
+        if not user:
+            return jsonify({"ok": False, "message": "用户不存在"}), 404
+        return jsonify({"ok": True, "user": user})
+    
+    @app.route("/api/users/<int:user_id>", methods=["PUT"])
+    @login_required
+    @permission_required("user:write")
+    def api_update_user(user_id: int):
+        """更新用户"""
+        data = request.get_json() or request.form
+        try:
+            ok = update_user(user_id, **data)
+            if ok:
+                return jsonify({"ok": True, "message": "更新成功"})
+            return jsonify({"ok": False, "message": "更新失败"}), 400
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"操作失败: {e}"}), 500
+    
+    @app.route("/api/users/<int:user_id>", methods=["DELETE"])
+    @login_required
+    @permission_required("user:delete")
+    def api_delete_user(user_id: int):
+        """删除用户"""
+        try:
+            ok = delete_user(user_id)
+            if ok:
+                return jsonify({"ok": True, "message": "删除成功"})
+            return jsonify({"ok": False, "message": "删除失败"}), 400
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"操作失败: {e}"}), 500
+    
+    @app.route("/api/users/<int:user_id>/permissions", methods=["GET"])
+    @login_required
+    def api_get_user_permissions(user_id: int):
+        """获取用户权限"""
+        permissions = get_user_permissions(user_id)
+        return jsonify({"ok": True, "permissions": permissions})
+    
+    # ==================== API - 系统 ====================
+    
+    @app.route("/api/system/configs", methods=["GET"])
+    @login_required
+    @permission_required("system:read")
+    def api_get_system_configs():
+        """获取系统配置"""
+        conn = get_db()
+        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        results = cursor.execute("SELECT * FROM system_config ORDER BY config_key").fetchall()
+        conn.close()
+        return jsonify({"ok": True, "configs": [dict(r) for r in results]})
+    
+    @app.route("/api/system/configs", methods=["POST"])
+    @login_required
+    @permission_required("system:write")
+    def api_add_system_config():
+        """添加系统配置"""
+        data = request.get_json() or request.form
+        key = data.get("config_key", "")
+        value = data.get("config_value", "")
+        if not key:
+            return jsonify({"ok": False, "message": "配置键不能为空"}), 400
+        try:
+            create_system_config(key, value)
+            return jsonify({"ok": True, "message": "配置已添加"})
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"操作失败: {e}"}), 500
+    
+    @app.route("/api/system/configs/<key>", methods=["PUT"])
+    @login_required
+    @permission_required("system:write")
+    def api_update_system_config(key: str):
+        """更新系统配置"""
+        data = request.get_json() or request.form
+        value = data.get("config_value", "")
+        if not update_system_config(key, value):
+            return jsonify({"ok": False, "message": "配置不存在"}), 404
+        return jsonify({"ok": True, "message": "配置已更新"})
+    
+    @app.route("/api/system/configs/<key>", methods=["DELETE"])
+    @login_required
+    @permission_required("system:write")
+    def api_delete_system_config(key: str):
+        """删除系统配置"""
+        if not delete_system_config(key):
+            return jsonify({"ok": False, "message": "配置不存在"}), 404
+        return jsonify({"ok": True, "message": "配置已删除"})
+    
+    @app.route("/api/system/backup", methods=["POST"])
+    @login_required
+    @permission_required("backup:execute")
+    def api_backup_database():
+        """备份数据库"""
+        try:
+            from utils import backup_database
+            backup_path = backup_database()
+            return jsonify({"ok": True, "message": "备份成功", "backup_path": str(backup_path)})
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"备份失败: {e}"}), 500
+    
+    @app.route("/api/system/restore", methods=["POST"])
+    @login_required
+    @permission_required("backup:execute")
+    def api_restore_database():
+        """恢复数据库"""
+        try:
+            from utils import restore_database
+            backup_path = request.files.get("file")
+            if not backup_path:
+                return jsonify({"ok": False, "message": "请选择备份文件"}), 400
+            
+            from config import DATA_DIR
+            from utils import sanitize_filename
+            backup_file = DATA_DIR / f"restore_{sanitize_filename(backup_path.filename)}"
+            backup_path.save(backup_file)
+            ok = restore_database(backup_file)
+            backup_file.unlink()
+            if ok:
+                return jsonify({"ok": True, "message": "恢复成功"})
+            return jsonify({"ok": False, "message": "恢复失败"}), 400
+        except Exception as e:
+            return jsonify({"ok": False, "message": f"恢复失败: {e}"}), 500
+    
+    @app.route("/api/system/health", methods=["GET"])
+    @login_required
+    def api_system_health():
+        """系统健康检查"""
+        return jsonify({"ok": True, "status": "healthy", "database": DB_TYPE, "db_path": str(DB_PATH)})
+    
+    @app.errorhandler(404)
+    def handle_404(error):
+        if request.path.startswith("/api/"):
+            return jsonify({"ok": False, "message": "404 未找到请求的资源"}), 404
+        return render_template("404.html"), 404
+
+
+if __name__ == "__main__":
+    app = create_app()
+    app.run(host=HOST, port=PORT, debug=DEBUG)

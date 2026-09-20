@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}{{ switch.name }} - IPAM 系统{% endblock %}
+
+{% block content %}
+<!-- 面包屑导航 -->
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{{ url_for('switches_page') }}">交换机管理</a></li>
+        <li class="breadcrumb-item active">{{ switch.name }}</li>
+    </ol>
+</nav>
+
+<!-- 交换机信息卡片 -->
+<div class="row mb-4">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-hdd-rack me-2"></i>{{ switch.name }}</h5>
+                <div>
+                    <button class="btn btn-sm btn-outline-success me-1" onclick="testConnection()">
+                        <i class="bi bi-link-45deg"></i> 测试连接
+                    </button>
+                    <button class="btn btn-sm btn-outline-info me-1" onclick="scanArp()">
+                        <i class="bi bi-scan"></i> 扫描 ARP
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label"><i class="bi bi-globe"></i> IP 地址</label>
+                        <p class="lead">{{ switch.ip }}</p>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label"><i class="bi bi-gear"></i> 端口</label>
+                        <p>{{ switch.port }}</p>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label"><i class="bi bi-person"></i> 用户名</label>
+                        <p>{{ switch.username }}</p>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label"><i class="bi bi-cpu"></i> 厂商</label>
+                        <p>{{ switch.vendor or '-' }}</p>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label"><i class="bi bi-geo-alt"></i> 位置</label>
+                        <p>{{ switch.location or '-' }}</p>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label"><i class="bi bi-clock-history"></i> 最后扫描</label>
+                        <p>{{ switch.last_seen or '-' }}</p>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label"><i class="bi bi-tag"></i> 状态</label>
+                        <p>
+                            <span class="badge bg-success">活跃</span>
+                        </p>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label"><i class="bi bi-card-text"></i> 备注</label>
+                        <p class="text-muted">{{ switch.notes or '-' }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>扫描统计</h5>
+            </div>
+            <div class="card-body">
+                <div id="scan-stats"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ARP 绑定列表 -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-link-45deg me-2"></i>ARP 绑定列表</h5>
+        <span class="badge bg-primary" id="binding-count">0 条</span>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>IP 地址</th>
+                        <th>MAC 地址</th>
+                        <th>使用人</th>
+                        <th>终端类型</th>
+                        <th>设备名</th>
+                        <th>状态</th>
+                    </tr>
+                </thead>
+                <tbody id="arp-table-body">
+                    <tr>
+                        <td colspan="6" class="text-center py-4">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 测试连接 Modal -->
+<div class="modal fade" id="testModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">测试 SSH 连接</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center">
+                <div id="test-status">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">测试中...</span>
+                    </div>
+                    <p class="mt-2">正在测试连接...</p>
+                </div>
+                <div id="test-result" class="alert d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function loadBindings() {
+    axios.get('/api/bindings/by-switch?switch_id={{ switch.id }}').then(res => {
+        const bindings = res.data.bindings || [];
+        document.getElementById('binding-count').textContent = bindings.length + ' 条';
+        const tbody = document.getElementById('arp-table-body');
+        tbody.innerHTML = '';
+        bindings.forEach(b => {
+            tbody.innerHTML += `
+                <tr>
+                    <td>${b.ip_address}</td>
+                    <td>${b.mac_address}</td>
+                    <td>${b.person_name || '-'}</td>
+                    <td>${b.terminal_type || '-'}</td>
+                    <td>${b.device_name || '-'}</td>
+                    <td><span class="badge bg-${b.status === 'active' ? 'success' : 'secondary'}">${b.status}</span></td>
+                </tr>`;
+        });
+    }).catch(e => console.error('加载绑定失败', e));
+}
+
+function testConnection() {
+    const modal = new bootstrap.Modal(document.getElementById('testModal'));
+    modal.show();
+    document.getElementById('test-status').innerHTML = `
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">测试中...</span>
+        </div>
+        <p class="mt-2">正在测试连接...</p>`;
+    document.getElementById('test-result').classList.add('d-none');
+    
+    axios.post('/api/switches/{{ switch.id }}/test').then(res => {
+        const r = document.getElementById('test-result');
+        r.classList.remove('d-none');
+        r.className = res.data.ok ? 'alert alert-success' : 'alert alert-danger';
+        r.textContent = res.data.message;
+    }).catch(e => {
+        const r = document.getElementById('test-result');
+        r.classList.remove('d-none');
+        r.className = 'alert alert-danger';
+        r.textContent = '测试失败';
+    });
+}
+
+function scanArp() {
+    if (!confirm('确定扫描该交换机的 ARP 表吗？')) return;
+    axios.post('/api/switches/{{ switch.id }}/scan').then(res => {
+        if (res.data.ok) {
+            alert(res.data.message);
+            loadBindings();
+        } else {
+            alert(res.data.message);
+        }
+    }).catch(e => alert('扫描失败'));
+}
+
+loadBindings();
+</script>
+{% endblock %}

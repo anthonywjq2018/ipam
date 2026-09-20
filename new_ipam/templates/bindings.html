@@ -1,0 +1,416 @@
+{% extends "base.html" %}
+{% block title %}IP-MAC 绑定 - IPAM 系统{% endblock %}
+
+{% block content %}
+<!-- 页面标题 -->
+<div class="row mb-4">
+    <div class="col d-flex justify-content-between align-items-center">
+        <h2 class="mb-0"><i class="bi bi-link-45deg me-2"></i>IP-MAC 绑定管理</h2>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#bindingModal">
+            <i class="bi bi-plus-circle me-1"></i>新增绑定
+        </button>
+    </div>
+</div>
+
+<!-- 筛选区 -->
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label" for="filter-switch">交换机</label>
+                <select class="form-select" id="filter-switch">
+                    <option value="">全部</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="filter-vlan">VLAN</label>
+                <input type="number" class="form-control" id="filter-vlan" placeholder="VLAN ID">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="filter-status">状态</label>
+                <select class="form-select" id="filter-status">
+                    <option value="">全部</option>
+                    <option value="active">活跃</option>
+                    <option value="inactive">非活跃</option>
+                    <option value="reserved">预留</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="filter-search">关键词</label>
+                <input type="text" class="form-control" id="filter-search" placeholder="IP/MAC/姓名...">
+            </div>
+            <div class="col-12 d-flex gap-2">
+                <button class="btn btn-primary" onclick="loadBindings()">筛选</button>
+                <button class="btn btn-outline-secondary" onclick="clearFilters()">清除</button>
+                <button class="btn btn-outline-success" onclick="exportCSV()">导出CSV</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 16x16 IP 视图 -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-grid me-2"></i>IP 使用视图 (16x16)</h5>
+        <select class="form-select w-auto" id="ip-grid-switch" onchange="loadIPGrid()">
+            <option value="">选择交换机</option>
+        </select>
+    </div>
+    <div class="card-body">
+        <div id="ip-grid" class="ip-grid">
+            <div class="text-center py-4">
+                <i class="bi bi-inbox fs-1 text-muted"></i>
+                <p class="mt-2 mb-0 text-muted">请选择交换机查看 IP 使用情况</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 绑定列表 -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-list-ul me-2"></i>绑定列表</h5>
+        <span class="badge bg-primary" id="bindings-count">0 条记录</span>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>IP 地址</th>
+                        <th>MAC 地址</th>
+                        <th>VLAN</th>
+                        <th>使用人</th>
+                        <th>单位</th>
+                        <th>房间号</th>
+                        <th>终端类型</th>
+                        <th>状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="binding-table-body">
+                    <tr>
+                        <td colspan="9" class="text-center py-4">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 新增/编辑绑定 Modal -->
+<div class="modal fade" id="bindingModal" tabindex="-1" aria-labelledby="bindingModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="bindingModalLabel">新增绑定</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="binding-form">
+                    <input type="hidden" id="binding-id" name="id">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label" for="binding-ip">IP 地址 *</label>
+                            <input type="text" class="form-control" id="binding-ip" name="ip_address" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="binding-mac">MAC 地址 *</label>
+                            <input type="text" class="form-control" id="binding-mac" name="mac_address" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="binding-vlan">VLAN</label>
+                            <input type="number" class="form-control" id="binding-vlan" name="vlan" value="1">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="binding-switch">交换机</label>
+                            <select class="form-select" id="binding-switch" name="switch_id">
+                                <option value="">请选择</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="binding-person">使用人</label>
+                            <input type="text" class="form-control" id="binding-person" name="person_name">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="binding-phone">手机</label>
+                            <input type="text" class="form-control" id="binding-phone" name="phone">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="binding-office">办公室</label>
+                            <input type="text" class="form-control" id="binding-office" name="office">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="binding-department">部门</label>
+                            <input type="text" class="form-control" id="binding-department" name="department">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="binding-room">房间号</label>
+                            <input type="text" class="form-control" id="binding-room" name="room_number">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="binding-terminal">终端类型</label>
+                            <select class="form-select" id="binding-terminal" name="terminal_type">
+                                <option value="">请选择</option>
+                                <option value="PC">PC</option>
+                                <option value="笔记本">笔记本</option>
+                                <option value="手机">手机</option>
+                                <option value="打印机">打印机</option>
+                                <option value="摄像头">摄像头</option>
+                                <option value="服务器">服务器</option>
+                                <option value="IoT">IoT</option>
+                                <option value="其他">其他</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="binding-os">操作系统</label>
+                            <input type="text" class="form-control" id="binding-os" name="os_info">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="binding-device">设备名</label>
+                            <input type="text" class="form-control" id="binding-device" name="device_name">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="binding-status">状态</label>
+                            <select class="form-select" id="binding-status" name="status">
+                                <option value="active">活跃</option>
+                                <option value="inactive">非活跃</option>
+                                <option value="reserved">预留</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="binding-notes">备注</label>
+                            <textarea class="form-control" id="binding-notes" name="notes" rows="2"></textarea>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="save-binding-btn">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/bindings.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadBindings();
+    loadSwitches();
+    loadIPGrid();
+});
+
+function loadBindings() {
+    const switchId = document.getElementById('filter-switch').value;
+    const vlan = document.getElementById('filter-vlan').value;
+    const status = document.getElementById('filter-status').value;
+    const search = document.getElementById('filter-search').value;
+    
+    let url = '/api/bindings?';
+    if (switchId) url += 'switch_id=' + switchId + '&';
+    if (vlan) url += 'vlan=' + vlan + '&';
+    if (status) url += 'status=' + status + '&';
+    if (search) url += 'search=' + encodeURIComponent(search) + '&';
+    
+    axios.get(url)
+        .then(response => {
+            const tbody = document.getElementById('binding-table-body');
+            tbody.innerHTML = '';
+            const bindings = response.data.bindings || [];
+            document.getElementById('bindings-count').textContent = bindings.length + ' 条记录';
+            
+            bindings.forEach(binding => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td><a href="{{ url_for('switch_detail_page', switch_id=0) }}`.replace('0', binding.switch_id || '') + '">' + binding.ip_address + '</a></td>
+                    <td>' + binding.mac_address + '</td>
+                    <td>' + (binding.vlan || '-') + '</td>
+                    <td>' + (binding.person_name || '-') + '</td>
+                    <td>' + (binding.office || '-') + '</td>
+                    <td>' + (binding.room_number || '-') + '</td>
+                    <td>' + (binding.terminal_type || '-') + '</td>
+                    <td><span class="badge bg-' + (binding.status === 'active' ? 'success' : binding.status === 'inactive' ? 'secondary' : 'warning') + '">' + binding.status + '</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick="editBinding(' + binding.id + ')">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteBinding(' + binding.id + ')">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        })
+        .catch(error => {
+            console.error('加载绑定失败:', error);
+        });
+}
+
+function loadSwitches() {
+    axios.get('/api/switches')
+        .then(response => {
+            const select = document.getElementById('filter-switch');
+            select.innerHTML = '<option value="">全部</option>';
+            response.data.switches.forEach(s => {
+                select.innerHTML += '<option value="' + s.id + '">' + s.name + '</option>';
+            });
+            
+            // 也更新绑定 Modal 中的交换机下拉
+            const switchSelect = document.getElementById('binding-switch');
+            switchSelect.innerHTML = '<option value="">请选择</option>';
+            response.data.switches.forEach(s => {
+                switchSelect.innerHTML += '<option value="' + s.id + '">' + s.name + '</option>';
+            });
+        })
+        .catch(error => {
+            console.error('加载交换机失败:', error);
+        });
+}
+
+function loadIPGrid() {
+    const switchId = document.getElementById('ip-grid-switch').value;
+    const grid = document.getElementById('ip-grid');
+    
+    if (!switchId) {
+        grid.innerHTML = `
+            <div class="text-center py-4">
+                <i class="bi bi-inbox fs-1 text-muted"></i>
+                <p class="mt-2 mb-0 text-muted">请选择交换机查看 IP 使用情况</p>
+            </div>
+        `;
+        return;
+    }
+    
+    axios.get('/api/bindings/by-switch?switch_id=' + switchId)
+        .then(response => {
+            const bindings = response.data.bindings || [];
+            // 生成 16x16 IP 网格
+            const baseIP = bindings[0]?.ip_address?.split('.').slice(0, 3).join('.') || '192.168.1';
+            const usedIPs = new Set(bindings.map(b => b.ip_address));
+            
+            let html = '<div class="ip-grid-container">';
+            html += '<div class="ip-grid-header mb-2">子网: ' + baseIP + '.0/24</div>';
+            html += '<div class="ip-grid-grid">';
+            
+            for (let i = 1; i <= 254; i++) {
+                const ip = baseIP + '.' + i;
+                const isUsed = usedIPs.has(ip);
+                const colorClass = isUsed ? 'bg-success' : '';
+                html += `<div class="ip-cell ${colorClass}" title="${ip}${isUsed ? ' (已使用)' : ' (空闲)'}">${i}</div>`;
+            }
+            
+            html += '</div></div>';
+            grid.innerHTML = html;
+        })
+        .catch(error => {
+            console.error('加载 IP 网格失败:', error);
+        });
+}
+
+function editBinding(id) {
+    axios.get('/api/bindings/' + id)
+        .then(response => {
+            const b = response.data.binding;
+            document.getElementById('binding-id').value = b.id;
+            document.getElementById('binding-ip').value = b.ip_address;
+            document.getElementById('binding-mac').value = b.mac_address;
+            document.getElementById('binding-vlan').value = b.vlan || 1;
+            document.getElementById('binding-switch').value = b.switch_id || '';
+            document.getElementById('binding-person').value = b.person_name || '';
+            document.getElementById('binding-phone').value = b.phone || '';
+            document.getElementById('binding-office').value = b.office || '';
+            document.getElementById('binding-department').value = b.department || '';
+            document.getElementById('binding-room').value = b.room_number || '';
+            document.getElementById('binding-terminal').value = b.terminal_type || '';
+            document.getElementById('binding-os').value = b.os_info || '';
+            document.getElementById('binding-device').value = b.device_name || '';
+            document.getElementById('binding-status').value = b.status || 'active';
+            document.getElementById('binding-notes').value = b.notes || '';
+            document.getElementById('bindingModalLabel').textContent = '编辑绑定';
+            const modal = new bootstrap.Modal(document.getElementById('bindingModal'));
+            modal.show();
+        })
+        .catch(error => {
+            console.error('加载绑定失败:', error);
+        });
+}
+
+function deleteBinding(id) {
+    if (!confirm('确定要删除该绑定记录吗？')) return;
+    
+    axios.delete('/api/bindings/' + id)
+        .then(response => {
+            if (response.data.ok) {
+                alert(response.data.message);
+                loadBindings();
+            } else {
+                alert(response.data.message);
+            }
+        })
+        .catch(error => {
+            alert('删除失败: ' + error.message);
+        });
+}
+
+function clearFilters() {
+    document.getElementById('filter-switch').value = '';
+    document.getElementById('filter-vlan').value = '';
+    document.getElementById('filter-status').value = '';
+    document.getElementById('filter-search').value = '';
+    loadBindings();
+}
+
+function exportCSV() {
+    window.open('/api/bindings/export');
+}
+
+document.getElementById('save-binding-btn').addEventListener('click', function() {
+    const id = document.getElementById('binding-id').value;
+    const data = {
+        ip_address: document.getElementById('binding-ip').value,
+        mac_address: document.getElementById('binding-mac').value,
+        vlan: document.getElementById('binding-vlan').value || 1,
+        switch_id: document.getElementById('binding-switch').value || null,
+        person_name: document.getElementById('binding-person').value,
+        phone: document.getElementById('binding-phone').value,
+        office: document.getElementById('binding-office').value,
+        department: document.getElementById('binding-department').value,
+        room_number: document.getElementById('binding-room').value,
+        terminal_type: document.getElementById('binding-terminal').value,
+        os_info: document.getElementById('binding-os').value,
+        device_name: document.getElementById('binding-device').value,
+        status: document.getElementById('binding-status').value,
+        notes: document.getElementById('binding-notes').value
+    };
+    
+    const url = id ? '/api/bindings/' + id : '/api/bindings';
+    const method = id ? 'put' : 'post';
+    
+    axios({method, url, data})
+        .then(response => {
+            if (response.data.ok) {
+                alert(response.data.message);
+                bootstrap.Modal.getInstance(document.getElementById('bindingModal')).hide();
+                loadBindings();
+                document.getElementById('binding-form').reset();
+                document.getElementById('binding-id').value = '';
+                document.getElementById('bindingModalLabel').textContent = '新增绑定';
+            } else {
+                alert(response.data.message);
+            }
+        })
+        .catch(error => {
+            alert('操作失败: ' + error.message);
+        });
+});
+</script>
+{% endblock %}

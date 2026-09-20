@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}用户管理 - IPAM 系统{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col d-flex justify-content-between align-items-center">
+        <h2 class="mb-0"><i class="bi bi-people me-2"></i>用户管理</h2>
+        <button class="btn btn-primary" onclick="newUser()">
+            <i class="bi bi-person-plus me-1"></i>新增用户
+        </button>
+    </div>
+</div>
+
+<!-- 用户列表 -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="bi bi-people me-2"></i>用户列表</span>
+        <span class="text-muted" id="user-count">0 人</span>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>#</th>
+                        <th>用户名</th>
+                        <th>昵称</th>
+                        <th>角色</th>
+                        <th>状态</th>
+                        <th>创建时间</th>
+                        <th class="text-end">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="user-tbody">
+                    <tr>
+                        <td colspan="7" class="text-center py-4">
+                            <span class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 新增/编辑用户 -->
+<div class="modal fade" id="userModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="userModalTitle">新增用户</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="userForm">
+                    <input type="hidden" id="user-id">
+                    <div class="mb-3">
+                        <label class="form-label" for="user-username">用户名 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="user-username" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="user-nickname">昵称</label>
+                        <input type="text" class="form-control" id="user-nickname" placeholder="显示名称">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="user-password">密码</label>
+                        <input type="password" class="form-control" id="user-password" placeholder="留空则不修改">
+                        <small class="text-muted">新增时必填；编辑时留空表示不修改</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="user-role">角色</label>
+                        <select class="form-select" id="user-role">
+                            <option value="admin">管理员</option>
+                            <option value="operator">操作员</option>
+                            <option value="viewer">访客</option>
+                        </select>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="user-active" checked>
+                        <label class="form-check-label" for="user-active">账号启用</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="save-user-btn">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function loadUsers() {
+    axios.get('/api/users')
+        .then(res => {
+            const users = res.data.users || [];
+            document.getElementById('user-count').textContent = users.length + ' 人';
+            const tbody = document.getElementById('user-tbody');
+            tbody.innerHTML = '';
+            if (users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">暂无用户</td></tr>';
+                return;
+            }
+            users.forEach((u, i) => {
+                const roleMap = {admin: '管理员', operator: '操作员', viewer: '访客'};
+                const roleBadge = u.role === 'admin' ? 'danger' : (u.role === 'operator' ? 'primary' : 'secondary');
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${i + 1}</td>
+                        <td><i class="bi bi-person-circle me-1"></i>${u.username}</td>
+                        <td>${u.nickname || '-'}</td>
+                        <td><span class="badge bg-${roleBadge}-subtle text-${roleBadge}-emphasis">${roleMap[u.role] || u.role}</span></td>
+                        <td>
+                            <span class="badge ${u.is_active ? 'bg-success-subtle text-success-emphasis' : 'bg-secondary-subtle text-secondary-emphasis'}">
+                                ${u.is_active ? '启用' : '停用'}
+                            </span>
+                        </td>
+                        <td>${u.created_at || '-'}</td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-primary" onclick="editUser(${u.id})"><i class="bi bi-pencil"></i></button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteUser(${u.id})"><i class="bi bi-trash"></i></button>
+                        </td>
+                    </tr>`;
+            });
+        });
+}
+
+function newUser() {
+    document.getElementById('userForm').reset();
+    document.getElementById('user-id').value = '';
+    document.getElementById('userModalTitle').textContent = '新增用户';
+    new bootstrap.Modal(document.getElementById('userModal')).show();
+}
+
+function editUser(id) {
+    axios.get('/api/users/' + id).then(res => {
+        const u = res.data.user;
+        document.getElementById('user-id').value = u.id;
+        document.getElementById('user-username').value = u.username;
+        document.getElementById('user-nickname').value = u.nickname || '';
+        document.getElementById('user-password').value = '';
+        document.getElementById('user-role').value = u.role || 'viewer';
+        document.getElementById('user-active').checked = !!u.is_active;
+        document.getElementById('userModalTitle').textContent = '编辑用户';
+        new bootstrap.Modal(document.getElementById('userModal')).show();
+    });
+}
+
+function deleteUser(id) {
+    if (!confirm('确定删除该用户？')) return;
+    axios.delete('/api/users/' + id).then(res => {
+        if (res.data.ok) { alert('删除成功'); loadUsers(); }
+        else alert(res.data.message || '删除失败');
+    }).catch(e => { if (e.response) alert(e.response.data.message || e.response.data.error); });
+}
+
+document.getElementById('save-user-btn').addEventListener('click', function() {
+    const id = document.getElementById('user-id').value;
+    const data = {
+        username: document.getElementById('user-username').value,
+        nickname: document.getElementById('user-nickname').value,
+        role: document.getElementById('user-role').value,
+        is_active: document.getElementById('user-active').checked
+    };
+    const pwd = document.getElementById('user-password').value;
+    if (pwd) data.password = pwd;
+    
+    if (id) {
+        data.id = id;
+        axios.put('/api/users/' + id, data).then(res => {
+            if (res.data.ok) { loadUsers(); bootstrap.Modal.getInstance(document.getElementById('userModal')).hide(); }
+            else alert(res.data.message || '保存失败');
+        }).catch(e => alert(e.response && (e.response.data.message || e.response.data.error) || '保存失败'));
+    } else {
+        axios.post('/api/users', data).then(res => {
+            if (res.data.ok) { loadUsers(); bootstrap.Modal.getInstance(document.getElementById('userModal')).hide(); }
+            else alert(res.data.message || '保存失败');
+        }).catch(e => alert(e.response && (e.response.data.message || e.response.data.error) || '保存失败'));
+    }
+});
+
+loadUsers();
+</script>
+{% endblock %}

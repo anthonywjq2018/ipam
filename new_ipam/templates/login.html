@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - IPAM 系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --primary-dark: #2563eb;
+            --primary-light: #60a5fa;
+            --bg-start: #0f172a;
+            --bg-mid: #1e293b;
+            --bg-end: #334155;
+            --card-bg: rgba(30, 41, 59, 0.9);
+            --card-border: rgba(148, 163, 184, 0.15);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --input-bg: rgba(15, 23, 42, 0.8);
+            --input-border: rgba(148, 163, 184, 0.2);
+            --input-focus: #3b82f6;
+            --shadow: 0 25px 80px rgba(0, 0, 0, 0.5);
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: linear-gradient(145deg, var(--bg-start) 0%, var(--bg-mid) 50%, var(--bg-end) 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* 背景装饰元素 */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -200px;
+            right: -200px;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        body::after {
+            content: '';
+            position: fixed;
+            bottom: -150px;
+            left: -150px;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 70%);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        .login-wrapper {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 440px;
+        }
+        
+        .login-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            box-shadow: var(--shadow);
+            width: 100%;
+            padding: 3rem 2.5rem;
+            animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+        
+        .login-header .logo {
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+            border-radius: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1.25rem;
+            color: white;
+            font-size: 2.25rem;
+            box-shadow: 0 10px 30px rgba(59, 130, 246, 0.35);
+            animation: pulse 3s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 10px 30px rgba(59, 130, 246, 0.35); }
+            50% { box-shadow: 0 15px 40px rgba(59, 130, 246, 0.5); }
+        }
+        
+        .login-header h1 {
+            margin: 0 0 0.5rem;
+            font-weight: 800;
+            font-size: 1.75rem;
+            color: var(--text-primary);
+            letter-spacing: -0.02em;
+        }
+        
+        .login-header p {
+            margin: 0;
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            font-weight: 400;
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        .form-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 0.625rem;
+            font-size: 0.9rem;
+        }
+        
+        .form-label i {
+            color: var(--text-secondary);
+            font-size: 1rem;
+            width: 20px;
+            text-align: center;
+        }
+        
+        .input-wrapper {
+            position: relative;
+        }
+        
+        .form-control {
+            background: var(--input-bg);
+            border: 1px solid var(--input-border);
+            border-radius: 12px;
+            padding: 1rem 1.25rem;
+            font-size: 1rem;
+            color: var(--text-primary);
+            width: 100%;
+            transition: all 0.25s ease;
+            outline: none;
+        }
+        
+        .form-control::placeholder {
+            color: var(--text-secondary);
+            opacity: 0.7;
+        }
+        
+        .form-control:hover {
+            border-color: rgba(148, 163, 184, 0.4);
+        }
+        
+        .form-control:focus {
+            border-color: var(--input-focus);
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+            background: rgba(15, 23, 42, 0.95);
+        }
+        
+        .form-control:focus + .input-focus-line {
+            transform: scaleX(1);
+        }
+        
+        .input-focus-line {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, var(--primary), #6366f1);
+            border-radius: 0 0 12px 12px;
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.3s ease;
+            pointer-events: none;
+        }
+        
+        .btn-login {
+            width: 100%;
+            padding: 1rem 1.5rem;
+            background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-weight: 600;
+            font-size: 1.05rem;
+            letter-spacing: 0.01em;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            margin-top: 0.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn-login::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s ease;
+        }
+        
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 35px rgba(59, 130, 246, 0.4);
+        }
+        
+        .btn-login:hover::before {
+            left: 100%;
+        }
+        
+        .btn-login:active {
+            transform: translateY(0);
+        }
+        
+        .btn-login:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-login i {
+            margin-right: 0.5rem;
+            transition: transform 0.2s ease;
+        }
+        
+        .btn-login:hover i {
+            transform: translateX(3px);
+        }
+        
+        .alert {
+            border-radius: 10px;
+            font-size: 0.9rem;
+            padding: 1rem 1.25rem;
+            border: none;
+            margin-bottom: 1.5rem;
+            animation: shake 0.4s ease;
+        }
+        
+        .alert-danger {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.08));
+            border-left: 4px solid #ef4444;
+            color: #fca5a5;
+        }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        
+        .btn-close {
+            filter: invert(1) opacity(0.7);
+        }
+        
+        .login-footer {
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--card-border);
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+        }
+        
+        .login-footer a {
+            color: var(--primary-light);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        
+        .login-footer a:hover {
+            color: var(--primary);
+            text-decoration: underline;
+        }
+        
+        /* 响应式 */
+        @media (max-width: 480px) {
+            .login-card {
+                padding: 2rem 1.5rem;
+                border-radius: 16px;
+            }
+            .login-header .logo {
+                width: 64px;
+                height: 64px;
+                font-size: 2rem;
+            }
+            .login-header h1 {
+                font-size: 1.5rem;
+            }
+        }
+        
+        /* 减少动画偏好 */
+        @media (prefers-reduced-motion: reduce) {
+            .login-card, .form-control, .btn-login, .alert, .logo {
+                animation: none !important;
+                transition: none !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-wrapper">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="logo" aria-hidden="true">
+                    <i class="bi bi-hdd-network-fill"></i>
+                </div>
+                <h1>IPAM 系统</h1>
+                <p>IP 地址管理平台</p>
+            </div>
+            
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="关闭"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            
+            <form method="POST" action="{{ url_for('login_page') }}" novalidate>
+                <div class="form-group">
+                    <label class="form-label" for="username">
+                        <i class="bi bi-person-fill"></i>
+                        <span>用户名</span>
+                    </label>
+                    <div class="input-wrapper">
+                        <input type="text" 
+                               class="form-control" 
+                               id="username" 
+                               name="username" 
+                               required 
+                               placeholder="请输入用户名" 
+                               autocomplete="username" 
+                               autofocus>
+                        <span class="input-focus-line" aria-hidden="true"></span>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label" for="password">
+                        <i class="bi bi-lock-fill"></i>
+                        <span>密码</span>
+                    </label>
+                    <div class="input-wrapper">
+                        <input type="password" 
+                               class="form-control" 
+                               id="password" 
+                               name="password" 
+                               required 
+                               placeholder="请输入密码" 
+                               autocomplete="current-password">
+                        <span class="input-focus-line" aria-hidden="true"></span>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn-login">
+                    <i class="bi bi-box-arrow-in-right"></i>
+                    <span>登 录</span>
+                </button>
+            </form>
+            
+            <div class="login-footer">
+                <p>默认账号: admin / Admin@123</p>
+                <p style="margin-top: 0.5rem;">首次登录后请及时修改密码</p>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

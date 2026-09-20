@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  ipam:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    image: ipam:latest
+    container_name: ipam
+    restart: unless-stopped
+    ports:
+      - "5100:5100"
+    environment:
+      - DB_TYPE=sqlite
+      - HOST=0.0.0.0
+      - PORT=5100
+      - DEBUG=false
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - SSH_TIMEOUT=10
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/data/backups
+    networks:
+      - ipam-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5100/api/system/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  ipam-network:
+    driver: bridge
+
+volumes:
+  ipam-data:
+  ipam-backups:
