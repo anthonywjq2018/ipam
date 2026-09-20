@@ -28,6 +28,7 @@ RUN groupadd -r ipam && useradd -r -g ipam -d /app -s /bin/bash ipam
 # 安装运行时依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制虚拟环境

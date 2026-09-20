@@ -564,9 +564,8 @@ def register_routes(app):
             return jsonify({"ok": False, "message": f"恢复失败: {e}"}), 500
     
     @app.route("/api/system/health", methods=["GET"])
-    @login_required
     def api_system_health():
-        """系统健康检查"""
+        """系统健康检查（无需登录，供 Docker 健康检查使用）"""
         return jsonify({"ok": True, "status": "healthy", "database": DB_TYPE, "db_path": str(DB_PATH)})
     
     @app.errorhandler(404)
