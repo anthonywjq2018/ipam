@@ -10,15 +10,14 @@
 </head>
 <body class="d-flex flex-column min-vh-100">
     <header>
-        <!-- 顶部导航栏 -->
-        <nav class="navbar navbar-expand-lg navbar-dark sticky-top app-navbar">
+        <nav class="navbar navbar-expand-lg sticky-top app-navbar">
             <div class="container-fluid px-4">
-                <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index_page') }}">
-                    <span class="brand-icon me-2">
+                <a class="navbar-brand" href="{{ url_for('index_page') }}">
+                    <span class="brand-icon">
                         <i class="bi bi-hdd-network-fill"></i>
                     </span>
-                    <span class="fw-bold">IPAM</span>
-                    <span class="brand-sub ms-2 d-none d-sm-inline">IP 地址管理平台</span>
+                    <span>IPAM</span>
+                    <span class="brand-sub d-none d-md-inline">IP 地址管理平台</span>
                 </a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="切换导航">
                     <span class="navbar-toggler-icon"></span>
@@ -33,7 +32,7 @@
                         </li>
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'switches_page' %}active{% endif %}" href="{{ url_for('switches_page') }}">
-                                <i class="bi bi-hdd-rack"></i><span class="ms-1">交换机管理</span>
+                                <i class="bi bi-hdd-rack"></i><span class="ms-1">交换机</span>
                             </a>
                         </li>
                         <li class="nav-item">
@@ -42,15 +41,17 @@
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'users_page' %}active{% endif %}" href="{{ url_for('users_page') }}">
-                                <i class="bi bi-people"></i><span class="ms-1">用户管理</span>
-                            </a>
-                        </li>
-                        <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'system_page' %}active{% endif %}" href="{{ url_for('system_page') }}">
                                 <i class="bi bi-gear"></i><span class="ms-1">系统管理</span>
                             </a>
                         </li>
+                        {% if session.user.role == 'admin' %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'users_page' %}active{% endif %}" href="{{ url_for('users_page') }}">
+                                <i class="bi bi-people"></i><span class="ms-1">用户管理</span>
+                            </a>
+                        </li>
+                        {% endif %}
                         <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                                 <span class="avatar-circle me-2">
@@ -58,7 +59,7 @@
                                 </span>
                                 <span>{{ session.user.display_name if session.user else '用户' }}</span>
                             </a>
-                            <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                            <ul class="dropdown-menu dropdown-menu-end">
                                 <li><h6 class="dropdown-header">
                                     <i class="bi bi-person-circle me-1"></i>{{ session.user.username }}
                                 </h6></li>
@@ -86,7 +87,6 @@
         </nav>
     </header>
 
-    <!-- 主内容 -->
     <main class="container-fluid px-4 py-4 flex-grow-1">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -101,10 +101,9 @@
         {% block content %}{% endblock %}
     </main>
 
-    <!-- 页脚 -->
     <footer class="app-footer py-3 mt-auto">
         <div class="container text-center">
-            <small class="text-muted">IPAM 系统 v1.0 | &copy; {{ now().year }} IPAM</small>
+            <small>IPAM v1.0 | &copy; {{ now().year }} IP Address Management</small>
         </div>
     </footer>
 
