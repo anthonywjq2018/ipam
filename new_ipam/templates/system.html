@@ -10,7 +10,7 @@
 
 <!-- 系统状态卡片 -->
 <div class="row g-4 mb-4">
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="card stat-card h-100">
             <div class="card-body d-flex align-items-center">
                 <div class="stat-icon bg-primary-subtle text-primary rounded-3 me-3">
@@ -18,12 +18,12 @@
                 </div>
                 <div>
                     <small class="text-muted">数据库类型</small>
-                    <h4 class="mb-0" id="db-type">-</h4>
+                    <h4 class="mb-0" id="db-type">MySQL</h4>
                 </div>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="card stat-card h-100">
             <div class="card-body d-flex align-items-center">
                 <div class="stat-icon bg-info-subtle text-info rounded-3 me-3">
@@ -36,7 +36,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-3">
         <div class="card stat-card h-100">
             <div class="card-body d-flex align-items-center">
                 <div class="stat-icon bg-success-subtle text-success rounded-3 me-3">
@@ -49,6 +49,25 @@
             </div>
         </div>
     </div>
+    <div class="col-md-3">
+        <div class="card stat-card h-100">
+            <div class="card-body d-flex align-items-center">
+                <div class="stat-icon bg-warning-subtle text-warning rounded-3 me-3">
+                    <i class="bi bi-plug fs-4"></i>
+                </div>
+                <div>
+                    <small class="text-muted">数据源</small>
+                    <h4 class="mb-0" id="ds-status">-</h4>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 数据源未就绪提示 -->
+<div id="ds-warning" class="alert alert-warning d-none mb-4" role="alert">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    <span id="ds-warning-text">数据源未就绪，请先完成配置与初始化，否则无法添加交换机等业务功能。</span>
 </div>
 
 <!-- 数据库配置 -->
@@ -56,26 +75,19 @@
     <div class="col-lg-7">
         <div class="card h-100">
             <div class="card-header">
-                <h5 class="mb-0"><i class="bi bi-database me-2"></i>数据库配置</h5>
+                <h5 class="mb-0"><i class="bi bi-database me-2"></i>数据源配置（MySQL）</h5>
             </div>
             <div class="card-body">
+                <p class="text-muted small">使用系统前必须配置数据源并完成初始化，否则无法添加交换机。</p>
                 <form id="db-form">
                     <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label" for="db-type-select">数据库类型</label>
-                            <select class="form-select" id="db-type-select">
-                                <option value="sqlite">SQLite</option>
-                                <option value="mysql">MySQL</option>
-                            </select>
-                            <small class="text-muted">切换数据库类型需要重启服务</small>
+                        <div class="col-md-8">
+                            <label class="form-label" for="db-host">主机地址</label>
+                            <input type="text" class="form-control" id="db-host" placeholder="localhost">
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <label class="form-label" for="db-port">端口</label>
                             <input type="number" class="form-control" id="db-port" value="3306">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label" for="db-host">主机</label>
-                            <input type="text" class="form-control" id="db-host" placeholder="localhost">
                         </div>
                         <div class="col-md-6">
                             <label class="form-label" for="db-name">数据库名</label>
@@ -85,15 +97,23 @@
                             <label class="form-label" for="db-user">数据库账号</label>
                             <input type="text" class="form-control" id="db-user" placeholder="root">
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-12">
                             <label class="form-label" for="db-password">数据库密码</label>
                             <input type="password" class="form-control" id="db-password" placeholder="••••••">
                         </div>
                     </div>
-                    <div class="mt-4">
-                        <button type="button" class="btn btn-primary" onclick="saveDbConfig()">保存配置</button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="testDb()">测试连接</button>
+                    <div class="mt-4 d-flex gap-2 flex-wrap">
+                        <button type="button" class="btn btn-outline-secondary" onclick="testDb()">
+                            <i class="bi bi-wifi me-1"></i>测试连接
+                        </button>
+                        <button type="button" class="btn btn-primary" onclick="saveDbConfig()">
+                            <i class="bi bi-save me-1"></i>保存配置
+                        </button>
+                        <button type="button" class="btn btn-success" onclick="initDatabase()" id="btn-init-db">
+                            <i class="bi bi-plus-circle me-1"></i>初始化数据库
+                        </button>
                     </div>
+                    <div id="ds-result" class="mt-3"></div>
                 </form>
             </div>
         </div>
@@ -114,7 +134,7 @@
                         <i class="bi bi-upload me-1"></i>导入备份
                     </button>
                 </div>
-                <input type="file" id="restore-file" class="d-none" accept=".db,.sqlite,.sqlite3">
+                <input type="file" id="restore-file" class="d-none" accept=".json">
                 <div id="backup-result" class="mt-3"></div>
             </div>
         </div>
@@ -124,65 +144,92 @@
 
 {% block scripts %}
 <script>
+function getDsConfig() {
+    return {
+        host: document.getElementById('db-host').value,
+        port: document.getElementById('db-port').value,
+        database: document.getElementById('db-name').value,
+        user: document.getElementById('db-user').value,
+        password: document.getElementById('db-password').value
+    };
+}
+
 function loadSystemInfo() {
     axios.get('/api/system/health').then(res => {
         const h = res.data;
-        document.getElementById('db-type').textContent = h.database;
-        document.getElementById('system-status').textContent = '正常';
+        document.getElementById('db-type').textContent = 'MySQL';
+        document.getElementById('system-status').textContent = h.db_ready ? '正常' : '待初始化';
         document.getElementById('current-user').textContent = 'admin';
     }).catch(e => {
         document.getElementById('system-status').textContent = '异常';
     });
+    // 数据源状态
+    axios.get('/api/system/datasource/status').then(res => {
+        const st = res.data.status;
+        const cfg = res.data.config || {};
+        if (cfg.host) document.getElementById('db-host').value = cfg.host;
+        if (cfg.port) document.getElementById('db-port').value = cfg.port;
+        if (cfg.database) document.getElementById('db-name').value = cfg.database;
+        if (cfg.user) document.getElementById('db-user').value = cfg.user;
+        if (cfg.password) document.getElementById('db-password').value = cfg.password;
+
+        const el = document.getElementById('ds-status');
+        const warn = document.getElementById('ds-warning');
+        if (st.ready) {
+            el.textContent = '已就绪';
+            el.className = 'mb-0 text-success';
+            warn.classList.add('d-none');
+        } else {
+            el.textContent = st.connected ? '待初始化' : '未连接';
+            el.className = 'mb-0 text-warning';
+            document.getElementById('ds-warning-text').textContent =
+                '数据源未就绪：' + (st.message || '请配置数据源并初始化') + '。在此之前无法添加交换机。';
+            warn.classList.remove('d-none');
+        }
+    }).catch(e => {
+        document.getElementById('ds-status').textContent = '未知';
+    });
 }
 
-function saveDbConfig() {
-    const type = document.getElementById('db-type-select').value;
-    const config = {
-        type: type,
-        host: document.getElementById('db-host').value,
-        port: document.getElementById('db-port').value,
-        name: document.getElementById('db-name').value,
-        user: document.getElementById('db-user').value,
-        password: document.getElementById('db-password').value
-    };
-    
-    axios.post('/api/system/configs', {config_key: 'db_config', config_value: JSON.stringify(config)}).then(res => {
-        if (res.data.ok) {
-            alert('数据库配置已保存，重启服务后生效');
-        } else {
-            alert(res.data.message || '保存失败');
-        }
-    }).catch(e => alert('保存失败: ' + (e.response && e.response.data.message || e.message)));
+function showDsResult(cls, msg) {
+    document.getElementById('ds-result').innerHTML =
+        '<div class="alert alert-' + cls + ' mb-0">' + msg + '</div>';
 }
 
 function testDb() {
-    const type = document.getElementById('db-type-select').value;
-    const config = {
-        type: type,
-        host: document.getElementById('db-host').value,
-        port: document.getElementById('db-port').value,
-        name: document.getElementById('db-name').value,
-        user: document.getElementById('db-user').value,
-        password: document.getElementById('db-password').value
-    };
-    
-    axios.post('/api/system/configs', {config_key: 'db_config_test', config_value: JSON.stringify(config)}).then(res => {
+    axios.post('/api/system/datasource/test', getDsConfig()).then(res => {
+        showDsResult(res.data.ok ? 'success' : 'danger', res.data.message || (res.data.ok ? '连接成功' : '连接失败'));
+    }).catch(e => showDsResult('danger', '连接失败: ' + (e.response && e.response.data.message || e.message)));
+}
+
+function saveDbConfig() {
+    axios.post('/api/system/datasource/config', getDsConfig()).then(res => {
         if (res.data.ok) {
-            alert('数据库连接测试成功');
+            showDsResult('success', res.data.message);
+            loadSystemInfo();
         } else {
-            alert(res.data.message || '连接失败');
+            showDsResult('danger', res.data.message || '保存失败');
         }
-    }).catch(e => alert('连接失败: ' + (e.response && e.response.data.message || e.message)));
+    }).catch(e => showDsResult('danger', '保存失败: ' + (e.response && e.response.data.message || e.message)));
+}
+
+function initDatabase() {
+    if (!confirm('将创建数据库与全部业务表，并注册默认管理员 admin/Admin@123。继续？')) return;
+    axios.post('/api/system/datasource/init').then(res => {
+        if (res.data.ok) {
+            showDsResult('success', res.data.message + '，请使用 admin/Admin@123 登录');
+            loadSystemInfo();
+        } else {
+            showDsResult('danger', res.data.message || '初始化失败');
+        }
+    }).catch(e => showDsResult('danger', '初始化失败: ' + (e.response && e.response.data.message || e.message)));
 }
 
 function backupDatabase() {
     axios.post('/api/system/backup').then(res => {
         if (res.data.ok) {
-            const a = document.createElement('a');
-            a.href = '/api/system/backup/download';
-            a.download = 'ipam_backup_' + new Date().toISOString().slice(0,19).replace(/[:T]/g, '-') + '.db';
-            a.click();
-            document.getElementById('backup-result').innerHTML = '<div class="alert alert-success">备份文件已生成，开始下载</div>';
+            document.getElementById('backup-result').innerHTML =
+                '<div class="alert alert-success">备份成功：' + res.data.backup_path + '</div>';
         } else {
             document.getElementById('backup-result').innerHTML = '<div class="alert alert-danger">' + res.data.message + '</div>';
         }
@@ -200,7 +247,8 @@ function restoreDatabase() {
     
     axios.post('/api/system/restore', form).then(res => {
         if (res.data.ok) {
-            alert('备份恢复成功，请重启服务');
+            alert('备份恢复成功');
+            loadSystemInfo();
         } else {
             alert(res.data.message || '恢复失败');
         }

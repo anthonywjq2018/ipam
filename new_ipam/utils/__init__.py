@@ -3,6 +3,7 @@ from typing import List, Optional, Tuple, Dict, Any
 工具模块
 """
 import hashlib
+import json
 import os
 import re
 import ipaddress
@@ -112,10 +113,7 @@ def ensure_dir(path: Path):
 
 
 def get_db_size() -> int:
-    """获取数据库文件大小"""
-    from config import DB_PATH
-    if DB_PATH.exists():
-        return DB_PATH.stat().st_size
+    """获取数据库大小（字节，MySQL 无文件概念，返回 0）"""
     return 0
 
 
@@ -154,26 +152,34 @@ def import_from_csv(filepath: Path) -> List[Dict]:
 
 
 def backup_database() -> Path:
-    """备份数据库"""
-    from config import DB_PATH, BACKUP_DIR
+    """备份数据库：导出全部业务数据为 JSON 快照"""
+    from config import BACKUP_DIR
     ensure_dir(BACKUP_DIR)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = BACKUP_DIR / f"ipam_backup_{timestamp}.db"
-    if DB_PATH.exists():
-        import shutil
-        shutil.copy2(DB_PATH, backup_path)
+    backup_path = BACKUP_DIR / f"ipam_backup_{timestamp}.json"
+    try:
+        from services.system_service import export_all_data
+        data = export_all_data()
+        backup_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        logger.error(f"备份数据库失败: {e}")
     return backup_path
 
 
 def restore_database(backup_path: Path) -> bool:
-    """恢复数据库"""
-    from config import DB_PATH
+    """恢复数据库：从 JSON 快照导入"""
     try:
-        if backup_path.exists():
-            import shutil
-            shutil.copy2(backup_path, DB_PATH)
-            return True
-        return False
+        if not backup_path.exists():
+            return False
+        from services.system_service import import_all_data
+        data = json.loads(backup_path.read_text(encoding="utf-8"))
+        ok, msg = import_all_data(data)
+        if not ok:
+            logger.error(f"恢复数据库失败: {msg}")
+        return ok
     except Exception as e:
         logger.error(f"恢复数据库失败: {e}")
         return False
@@ -183,7 +189,7 @@ def clean_old_backups(retention_days: int = 30):
     """清理旧备份"""
     from config import BACKUP_DIR
     cutoff = datetime.now() - timedelta(days=retention_days)
-    for f in BACKUP_DIR.glob("*.db"):
+    for f in BACKUP_DIR.glob("*.json"):
         if f.stat().st_mtime < cutoff.timestamp():
             f.unlink()
             logger.info(f"清理旧备份: {f.name}")

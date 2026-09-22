@@ -8,8 +8,8 @@ from flask import Flask, request, jsonify, render_template, redirect, url_for, s
 from functools import wraps
 from datetime import datetime
 
-from config import DB_TYPE, DB_PATH, HOST, PORT, DEBUG, SECRET_KEY, DATA_DIR
-from db import init_db, get_db
+from config import HOST, PORT, DEBUG, SECRET_KEY, DATA_DIR, load_db_config, save_db_config
+from db import get_db, check_datasource, test_datasource, init_database, is_db_ready
 from services.auth_service import authenticate_user, create_user, get_all_users, update_user, delete_user, get_user_by_id, get_user_permissions, has_permission
 from services.switch_service import add_switch, update_switch, delete_switch, get_switches, get_switch_by_id, test_switch_connection, scan_switch, update_binding_from_arp
 from services.binding_service import get_bindings, get_binding_by_id, get_bindings_by_switch, get_vlans_by_switch, add_binding, update_binding, delete_binding, delete_bindings_by_switch, get_binding_summary, get_bindings_export, get_bindings_by_vlan
@@ -32,10 +32,16 @@ def create_app():
     def inject_now():
         return {'now': lambda: datetime.utcnow}
     
-    # 初始化数据库
-    init_db()
+    # 初始化数据库：仅在数据源已配置且表已存在时跳过；
+    # 未就绪时不自动建表，由系统配置页面的初始化向导手动触发
+    try:
+        status = check_datasource()
+        if status["configured"] and status["connected"] and not status["ready"]:
+            logger.warning("数据源未就绪，请登录后在系统配置页面完成初始化")
+    except Exception as e:
+        logger.warning(f"数据源检查失败: {e}")
     
-    # 注册默认管理员
+    # 注册默认管理员（仅在表已存在时执行）
     register_default_admin()
     
     # 注册错误处理
@@ -48,11 +54,13 @@ def create_app():
 
 
 def register_default_admin():
-    """注册默认管理员"""
+    """注册默认管理员（表已存在时才执行）"""
+    if not is_db_ready():
+        return
     conn = get_db()
-    cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+    cursor = conn.cursor()
     result = cursor.execute(
-        "SELECT id FROM users WHERE username = ?",
+        "SELECT id FROM users WHERE username = %s",
         ("admin",)
     ).fetchone()
     
@@ -62,7 +70,7 @@ def register_default_admin():
         cursor.execute(
             """
             INSERT INTO users (username, password_hash, display_name, role, email, is_active)
-            VALUES (?, ?, ?, ?, ?, 1)
+            VALUES (%s, %s, %s, %s, %s, 1)
             """,
             ("admin", hash_password("Admin@123"), "系统管理员", "admin", "admin@ipam.local")
         )
@@ -224,6 +232,15 @@ def register_routes(app):
     @permission_required("switch:write")
     def api_add_switch():
         """添加交换机"""
+        # 前置条件：数据源必须已配置并完成初始化
+        if not is_db_ready():
+            status = check_datasource()
+            return jsonify({
+                "ok": False,
+                "message": f"数据源未就绪：{status.get('message') or '请先配置数据源'}。"
+                           "请前往「系统配置」完成数据源配置与初始化。",
+                "need_setup": True,
+            }), 400
         data = request.get_json() or request.form
         try:
             ok, msg = add_switch(data)
@@ -284,6 +301,12 @@ def register_routes(app):
     @permission_required("scan:execute")
     def api_scan_switch(switch_id: int):
         """扫描交换机 ARP 表"""
+        if not is_db_ready():
+            return jsonify({
+                "ok": False,
+                "message": "数据源未就绪，请先在系统配置中完成初始化",
+                "need_setup": True,
+            }), 400
         try:
             ok, msg, bindings = scan_switch(switch_id)
             if ok:
@@ -314,6 +337,13 @@ def register_routes(app):
     @permission_required("binding:write")
     def api_add_binding():
         """添加绑定"""
+        if not is_db_ready():
+            status = check_datasource()
+            return jsonify({
+                "ok": False,
+                "message": f"数据源未就绪：{status.get('message') or '请先配置数据源'}。",
+                "need_setup": True,
+            }), 400
         data = request.get_json() or request.form
         try:
             ok, msg = add_binding(data)
@@ -487,7 +517,7 @@ def register_routes(app):
     def api_get_system_configs():
         """获取系统配置"""
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         results = cursor.execute("SELECT * FROM system_config ORDER BY config_key").fetchall()
         conn.close()
         return jsonify({"ok": True, "configs": [dict(r) for r in results]})
@@ -566,7 +596,108 @@ def register_routes(app):
     @app.route("/api/system/health", methods=["GET"])
     def api_system_health():
         """系统健康检查（无需登录，供 Docker 健康检查使用）"""
-        return jsonify({"ok": True, "status": "healthy", "database": DB_TYPE, "db_path": str(DB_PATH)})
+        try:
+            status = check_datasource()
+        except Exception:
+            status = {"ready": False}
+        return jsonify({
+            "ok": True,
+            "status": "healthy",
+            "database": "mysql",
+            "db_ready": status.get("ready", False),
+        })
+
+    # ==================== API - 数据源管理 ====================
+
+    def _datasource_setup_mode() -> bool:
+        """未初始化时进入安装模式：允许免登录配置数据源"""
+        try:
+            status = check_datasource()
+            # 数据库已建且已有管理员时，视为已安装
+            if status["ready"]:
+                conn = get_db()
+                with conn.cursor() as cur:
+                    cur.execute("SELECT COUNT(*) AS cnt FROM users")
+                    installed = cur.fetchone()["cnt"] > 0
+                return not installed
+            # 库未建或表未建 => 安装模式
+            return True
+        except Exception:
+            return True
+
+    @app.route("/api/system/datasource/status", methods=["GET"])
+    def api_datasource_status():
+        """数据源状态（安装向导与前端前置检查使用）"""
+        try:
+            status = check_datasource()
+        except Exception as e:
+            return jsonify({
+                "ok": False,
+                "configured": False, "connected": False,
+                "database_created": False, "tables_created": False,
+                "ready": False, "message": f"检查失败: {e}",
+            })
+        cfg = load_db_config()
+        return jsonify({
+            "ok": True,
+            "status": status,
+            "config": {
+                "host": cfg.get("host"),
+                "port": cfg.get("port"),
+                "user": cfg.get("user"),
+                "database": cfg.get("database"),
+                "password": "********" if cfg.get("password") else "",
+            },
+        })
+
+    @app.route("/api/system/datasource/test", methods=["POST"])
+    def api_datasource_test():
+        """测试数据源连接（支持免登录：安装模式）"""
+        if not _datasource_setup_mode():
+            if not session.get("user"):
+                return jsonify({"ok": False, "message": "请先登录"}), 401
+        data = request.get_json() or request.form
+        cfg = {
+            "host": data.get("host") or load_db_config().get("host"),
+            "port": int(data.get("port") or 3306),
+            "user": data.get("user") or load_db_config().get("user"),
+            "password": data.get("password") if data.get("password") not in (None, "********") else load_db_config().get("password"),
+            "database": data.get("database") or load_db_config().get("database"),
+        }
+        ok, msg = test_datasource(cfg)
+        return jsonify({"ok": ok, "message": msg})
+
+    @app.route("/api/system/datasource/config", methods=["POST"])
+    def api_datasource_save():
+        """保存数据源配置（安装模式免登录）"""
+        if not _datasource_setup_mode():
+            if not session.get("user"):
+                return jsonify({"ok": False, "message": "请先登录"}), 401
+            if not has_permission(session["user"]["id"], "system:write"):
+                return jsonify({"ok": False, "message": "权限不足"}), 403
+        data = request.get_json() or request.form
+        cfg = {
+            "host": data.get("host"),
+            "port": int(data.get("port") or 3306),
+            "user": data.get("user"),
+            "password": data.get("password"),
+            "database": data.get("database"),
+        }
+        if not all([cfg["host"], cfg["user"], cfg["database"]]):
+            return jsonify({"ok": False, "message": "主机、用户名、数据库名不能为空"}), 400
+        save_db_config(cfg)
+        return jsonify({"ok": True, "message": "数据源配置已保存"})
+
+    @app.route("/api/system/datasource/init", methods=["POST"])
+    def api_datasource_init():
+        """初始化数据库：建库 + 建表 + 默认管理员（安装模式免登录）"""
+        if not _datasource_setup_mode():
+            if not session.get("user"):
+                return jsonify({"ok": False, "message": "请先登录"}), 401
+            if not has_permission(session["user"]["id"], "system:write"):
+                return jsonify({"ok": False, "message": "权限不足"}), 403
+        ok, msg = init_database()
+        return jsonify({"ok": ok, "message": msg})
     
     @app.errorhandler(404)
     def handle_404(error):

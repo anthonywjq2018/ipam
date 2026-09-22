@@ -11,15 +11,22 @@ services:
     ports:
       - "5100:5100"
     environment:
-      - DB_TYPE=sqlite
       - HOST=0.0.0.0
       - PORT=5100
       - DEBUG=false
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
       - SSH_TIMEOUT=10
+      # 数据源默认值（也可在系统配置页面修改，保存后以 data/db_config.json 为准）
+      - DB_MYSQL_HOST=mysql
+      - DB_MYSQL_PORT=3306
+      - DB_MYSQL_USER=ipam
+      - DB_MYSQL_PASSWORD=ipam123
+      - DB_MYSQL_DATABASE=ipam
     volumes:
       - ./data:/app/data
-      - ./backups:/app/data/backups
+    depends_on:
+      mysql:
+        condition: service_healthy
     networks:
       - ipam-network
     healthcheck:
@@ -29,10 +36,30 @@ services:
       retries: 3
       start_period: 10s
 
+  mysql:
+    image: mysql:8.0
+    container_name: ipam-mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root123}
+      - MYSQL_DATABASE=ipam
+      - MYSQL_USER=ipam
+      - MYSQL_PASSWORD=ipam123
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - ipam-mysql-data:/var/lib/mysql
+    networks:
+      - ipam-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-root123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
 networks:
   ipam-network:
     driver: bridge
 
 volumes:
-  ipam-data:
-  ipam-backups:
+  ipam-mysql-data:

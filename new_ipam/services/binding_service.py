@@ -14,31 +14,31 @@ def get_bindings(page: int = 1, per_page: int = 50, search: str = "",
     """获取 IP-MAC 绑定列表（支持筛选）"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         
         conditions = []
         params = []
         
         if search:
-            conditions.append("(ip_address LIKE ? OR mac_address LIKE ? OR person_name LIKE ? OR phone LIKE ?)")
+            conditions.append("(ip_address LIKE %s OR mac_address LIKE %s OR person_name LIKE %s OR phone LIKE %s)")
             params.extend([f"%{search}%", f"%{search}%", f"%{search}%", f"%{search}%"])
         if switch_id:
-            conditions.append("switch_id = ?")
+            conditions.append("switch_id = %s")
             params.append(switch_id)
         if status:
-            conditions.append("status = ?")
+            conditions.append("status = %s")
             params.append(status)
         if vlan:
-            conditions.append("vlan = ?")
+            conditions.append("vlan = %s")
             params.append(vlan)
         
         where_sql = " WHERE " + " AND ".join(conditions) if conditions else ""
         
         # 总数
         total = cursor.execute(
-            "SELECT COUNT(*) FROM ip_mac_bindings" + where_sql,
+            "SELECT COUNT(*) AS cnt FROM ip_mac_bindings" + where_sql,
             params
-        ).fetchone()[0]
+        ).fetchone()["cnt"]
         
         # 列表
         offset = (page - 1) * per_page
@@ -47,7 +47,7 @@ def get_bindings(page: int = 1, per_page: int = 50, search: str = "",
             "FROM ip_mac_bindings b "
             "LEFT JOIN switches s ON b.switch_id = s.id"
             + where_sql + 
-            " ORDER BY b.last_seen DESC LIMIT ? OFFSET ?"
+            " ORDER BY b.last_seen DESC LIMIT %s OFFSET %s"
         )
         query_params = params + [per_page, offset]
         
@@ -62,9 +62,9 @@ def get_binding_by_id(binding_id: int) -> Optional[Dict]:
     """根据 ID 获取绑定"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         result = cursor.execute(
-            "SELECT * FROM ip_mac_bindings WHERE id = ?", (binding_id,)
+            "SELECT * FROM ip_mac_bindings WHERE id = %s", (binding_id,)
         ).fetchone()
         return dict(result) if result else None
     except Exception as e:
@@ -76,9 +76,9 @@ def get_bindings_by_switch(switch_id: int) -> List[Dict]:
     """获取指定交换机的绑定列表"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         results = cursor.execute(
-            "SELECT * FROM ip_mac_bindings WHERE switch_id = ? ORDER BY ip_address",
+            "SELECT * FROM ip_mac_bindings WHERE switch_id = %s ORDER BY ip_address",
             (switch_id,)
         ).fetchall()
         return [dict(r) for r in results]
@@ -91,11 +91,11 @@ def add_binding(binding_data: Dict) -> tuple[bool, str]:
     """添加绑定"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         
         # 检查重复
         existing = cursor.execute(
-            "SELECT id FROM ip_mac_bindings WHERE ip_address = ? AND switch_id = ?",
+            "SELECT id FROM ip_mac_bindings WHERE ip_address = %s AND switch_id = %s",
             (binding_data['ip_address'], binding_data.get('switch_id'))
         ).fetchone()
         if existing:
@@ -107,7 +107,7 @@ def add_binding(binding_data: Dict) -> tuple[bool, str]:
             (ip_address, mac_address, vlan, switch_id, person_name, phone, office,
              department, room_number, terminal_type, os_info, device_name,
              status, notes, first_seen, last_seen, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP,
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """,
             (
@@ -139,19 +139,19 @@ def update_binding(binding_id: int, binding_data: Dict) -> tuple[bool, str]:
     """更新绑定"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         
         fields = []
         values = []
         for k, v in binding_data.items():
             if k != 'id':
-                fields.append(f"{k} = ?")
+                fields.append(f"{k} = %s")
                 values.append(v)
         
         if fields:
             values.append(binding_id)
             cursor.execute(
-                f"UPDATE ip_mac_bindings SET {', '.join(fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                f"UPDATE ip_mac_bindings SET {', '.join(fields)}, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
                 values
             )
             conn.commit()
@@ -167,8 +167,8 @@ def delete_binding(binding_id: int) -> tuple[bool, str]:
     """删除绑定"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
-        cursor.execute("DELETE FROM ip_mac_bindings WHERE id = ?", (binding_id,))
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM ip_mac_bindings WHERE id = %s", (binding_id,))
         conn.commit()
         logger.info(f"绑定 ID {binding_id} 删除成功")
         return True, "删除成功"
@@ -181,8 +181,8 @@ def delete_bindings_by_switch(switch_id: int) -> int:
     """删除指定交换机下的所有绑定"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
-        cursor.execute("DELETE FROM ip_mac_bindings WHERE switch_id = ?", (switch_id,))
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM ip_mac_bindings WHERE switch_id = %s", (switch_id,))
         conn.commit()
         count = cursor.rowcount
         logger.info(f"已删除交换机 {switch_id} 下的 {count} 条绑定")
@@ -196,11 +196,11 @@ def get_bindings_by_vlan(switch_id: int, vlan: int) -> List[Dict]:
     """获取指定交换机和 VLAN 下的绑定"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         results = cursor.execute(
             """
             SELECT * FROM ip_mac_bindings 
-            WHERE switch_id = ? AND vlan = ? 
+            WHERE switch_id = %s AND vlan = %s 
             ORDER BY ip_address
             """,
             (switch_id, vlan)
@@ -215,9 +215,9 @@ def get_vlans_by_switch(switch_id: int) -> List[int]:
     """获取指定交换机下的 VLAN 列表"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         results = cursor.execute(
-            "SELECT DISTINCT vlan FROM ip_mac_bindings WHERE switch_id = ? ORDER BY vlan",
+            "SELECT DISTINCT vlan FROM ip_mac_bindings WHERE switch_id = %s ORDER BY vlan",
             (switch_id,)
         ).fetchall()
         return [r['vlan'] for r in results]
@@ -230,29 +230,29 @@ def get_binding_summary(switch_id: int = None) -> Dict:
     """获取绑定统计信息"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         
         if switch_id:
             total = cursor.execute(
-                "SELECT COUNT(*) FROM ip_mac_bindings WHERE switch_id = ?",
+                "SELECT COUNT(*) AS cnt FROM ip_mac_bindings WHERE switch_id = %s",
                 (switch_id,)
-            ).fetchone()[0]
+            ).fetchone()["cnt"]
             active = cursor.execute(
-                "SELECT COUNT(*) FROM ip_mac_bindings WHERE switch_id = ? AND status = 'active'",
+                "SELECT COUNT(*) AS cnt FROM ip_mac_bindings WHERE switch_id = %s AND status = 'active'",
                 (switch_id,)
-            ).fetchone()[0]
+            ).fetchone()["cnt"]
             inactive = cursor.execute(
-                "SELECT COUNT(*) FROM ip_mac_bindings WHERE switch_id = ? AND status = 'inactive'",
+                "SELECT COUNT(*) AS cnt FROM ip_mac_bindings WHERE switch_id = %s AND status = 'inactive'",
                 (switch_id,)
-            ).fetchone()[0]
+            ).fetchone()["cnt"]
         else:
-            total = cursor.execute("SELECT COUNT(*) FROM ip_mac_bindings").fetchone()[0]
+            total = cursor.execute("SELECT COUNT(*) AS cnt FROM ip_mac_bindings").fetchone()["cnt"]
             active = cursor.execute(
-                "SELECT COUNT(*) FROM ip_mac_bindings WHERE status = 'active'"
-            ).fetchone()[0]
+                "SELECT COUNT(*) AS cnt FROM ip_mac_bindings WHERE status = 'active'"
+            ).fetchone()["cnt"]
             inactive = cursor.execute(
-                "SELECT COUNT(*) FROM ip_mac_bindings WHERE status = 'inactive'"
-            ).fetchone()[0]
+                "SELECT COUNT(*) AS cnt FROM ip_mac_bindings WHERE status = 'inactive'"
+            ).fetchone()["cnt"]
         
         return {
             'total': total,
@@ -269,7 +269,7 @@ def get_bindings_export() -> List[Dict]:
     """获取导出格式的绑定列表"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         results = cursor.execute(
             """
             SELECT b.*, s.name AS switch_name 

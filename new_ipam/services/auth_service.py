@@ -24,9 +24,9 @@ def authenticate_user(username: str, password: str) -> Optional[Dict]:
     """验证用户登录"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         result = cursor.execute(
-            "SELECT * FROM users WHERE username = ? AND is_active = 1",
+            "SELECT * FROM users WHERE username = %s AND is_active = 1",
             (username,)
         ).fetchone()
         
@@ -44,17 +44,17 @@ def create_user(username: str, password: str, display_name: str,
     """创建新用户"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         
         existing = cursor.execute(
-            "SELECT id FROM users WHERE username = ?", (username,)
+            "SELECT id FROM users WHERE username = %s", (username,)
         ).fetchone()
         if existing:
             logger.warning(f"用户名 {username} 已存在")
             return None
         
         cursor.execute(
-            "INSERT INTO users (username, password_hash, display_name, role, email) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO users (username, password_hash, display_name, role, email) VALUES (%s, %s, %s, %s, %s)",
             (username, hash_password(password), display_name, role, email)
         )
         conn.commit()
@@ -72,7 +72,7 @@ def get_all_users() -> List[Dict]:
     """获取所有用户"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         results = cursor.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall()
         return [dict(r) for r in results]
     except Exception as e:
@@ -84,17 +84,17 @@ def update_user(user_id: int, **kwargs) -> bool:
     """更新用户信息"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         
         if 'password' in kwargs:
             kwargs['password_hash'] = hash_password(kwargs.pop('password'))
         
-        fields = ", ".join([f"{k} = ?" for k in kwargs])
+        fields = ", ".join([f"{k} = %s" for k in kwargs])
         kwargs['updated_at'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         kwargs['user_id'] = user_id
         
         cursor.execute(
-            f"UPDATE users SET {fields}, updated_at = ? WHERE id = ?",
+            f"UPDATE users SET {fields}, updated_at = %s WHERE id = %s",
             (kwargs['updated_at'], user_id)
         )
         conn.commit()
@@ -108,8 +108,8 @@ def delete_user(user_id: int) -> bool:
     """删除用户"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
-        cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
         conn.commit()
         return cursor.rowcount > 0
     except Exception as e:
@@ -121,9 +121,9 @@ def get_user_by_id(user_id: int) -> Optional[Dict]:
     """根据 ID 获取用户"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         result = cursor.execute(
-            "SELECT * FROM users WHERE id = ?", (user_id,)
+            "SELECT * FROM users WHERE id = %s", (user_id,)
         ).fetchone()
         return dict(result) if result else None
     except Exception as e:
@@ -135,9 +135,9 @@ def get_user_permissions(user_id: int) -> List[str]:
     """获取用户权限列表"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         result = cursor.execute(
-            "SELECT role FROM users WHERE id = ?", (user_id,)
+            "SELECT role FROM users WHERE id = %s", (user_id,)
         ).fetchone()
         if result:
             role = result['role']

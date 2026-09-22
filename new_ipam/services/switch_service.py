@@ -14,11 +14,11 @@ def add_switch(switch_data: Dict) -> tuple[bool, str]:
     """添加交换机"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         
         # 检查 IP+端口是否已存在
         existing = cursor.execute(
-            "SELECT id FROM switches WHERE ip = ? AND port = ?",
+            "SELECT id FROM switches WHERE ip = %s AND port = %s",
             (switch_data['ip'], switch_data.get('port', 22))
         ).fetchone()
         if existing:
@@ -29,7 +29,7 @@ def add_switch(switch_data: Dict) -> tuple[bool, str]:
             """
             INSERT INTO switches 
             (name, ip, port, username, password, vendor, location, notes) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 switch_data['name'],
@@ -56,20 +56,20 @@ def update_switch(switch_id: int, switch_data: Dict) -> tuple[bool, str]:
     """更新交换机"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         
         fields = []
         values = []
         for k, v in switch_data.items():
             if k != 'id':
-                fields.append(f"{k} = ?")
+                fields.append(f"{k} = %s")
                 values.append(v)
         
         if fields:
             fields_str = ", ".join(fields)
             values.append(switch_id)
             cursor.execute(
-                f"UPDATE switches SET {fields_str}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                f"UPDATE switches SET {fields_str}, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
                 values
             )
             conn.commit()
@@ -85,17 +85,17 @@ def delete_switch(switch_id: int) -> tuple[bool, str]:
     """删除交换机"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         
         # 检查是否有绑定记录
         bindings = cursor.execute(
-            "SELECT COUNT(*) FROM ip_mac_bindings WHERE switch_id = ?",
+            "SELECT COUNT(*) AS cnt FROM ip_mac_bindings WHERE switch_id = %s",
             (switch_id,)
-        ).fetchone()[0]
+        ).fetchone()["cnt"]
         if bindings > 0:
             return False, "存在绑定记录，请先删除或迁移绑定"
         
-        cursor.execute("DELETE FROM switches WHERE id = ?", (switch_id,))
+        cursor.execute("DELETE FROM switches WHERE id = %s", (switch_id,))
         conn.commit()
         
         logger.info(f"交换机 ID {switch_id} 删除成功")
@@ -109,7 +109,7 @@ def get_switches(include_inactive: bool = False) -> List[Dict]:
     """获取交换机列表"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         query = "SELECT * FROM switches"
         if not include_inactive:
             query += " WHERE is_active = 1"
@@ -126,9 +126,9 @@ def get_switch_by_id(switch_id: int) -> Optional[Dict]:
     """根据 ID 获取交换机"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         result = cursor.execute(
-            "SELECT * FROM switches WHERE id = ?", (switch_id,)
+            "SELECT * FROM switches WHERE id = %s", (switch_id,)
         ).fetchone()
         return dict(result) if result else None
     except Exception as e:
@@ -140,9 +140,9 @@ def test_switch_connection(switch_id: int) -> tuple[bool, str]:
     """测试交换机连通性"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         result = cursor.execute(
-            "SELECT * FROM switches WHERE id = ?", (switch_id,)
+            "SELECT * FROM switches WHERE id = %s", (switch_id,)
         ).fetchone()
         
         if not result:
@@ -176,11 +176,11 @@ def scan_switch(switch_id: int) -> tuple[bool, str, List[Dict]]:
     """扫描交换机 ARP 表并更新绑定"""
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         
         # 获取交换机信息
         switch_row = cursor.execute(
-            "SELECT * FROM switches WHERE id = ?", (switch_id,)
+            "SELECT * FROM switches WHERE id = %s", (switch_id,)
         ).fetchone()
         if not switch_row:
             return False, "交换机不存在", []
@@ -203,7 +203,7 @@ def scan_switch(switch_id: int) -> tuple[bool, str, List[Dict]]:
         
         # 更新交换机最后扫描时间
         cursor.execute(
-            "UPDATE switches SET last_seen = CURRENT_TIMESTAMP WHERE id = ?",
+            "UPDATE switches SET last_seen = CURRENT_TIMESTAMP WHERE id = %s",
             (switch_id,)
         )
         conn.commit()
@@ -222,7 +222,7 @@ def update_binding_from_arp(bindings: List[Dict], switch_id: int) -> int:
     
     try:
         conn = get_db()
-        cursor = conn.cursor() if conn.__class__.__name__ == 'Connection' else conn
+        cursor = conn.cursor()
         
         updated_count = 0
         for b in bindings:
@@ -231,7 +231,7 @@ def update_binding_from_arp(bindings: List[Dict], switch_id: int) -> int:
             
             # 检查是否存在
             existing = cursor.execute(
-                "SELECT id FROM ip_mac_bindings WHERE ip_address = ? AND switch_id = ?",
+                "SELECT id FROM ip_mac_bindings WHERE ip_address = %s AND switch_id = %s",
                 (ip, switch_id)
             ).fetchone()
             
@@ -240,8 +240,8 @@ def update_binding_from_arp(bindings: List[Dict], switch_id: int) -> int:
                 cursor.execute(
                     """
                     UPDATE ip_mac_bindings 
-                    SET mac_address = ?, updated_at = CURRENT_TIMESTAMP 
-                    WHERE id = ?
+                    SET mac_address = %s, updated_at = CURRENT_TIMESTAMP 
+                    WHERE id = %s
                     """,
                     (mac, existing['id'])
                 )
@@ -252,7 +252,7 @@ def update_binding_from_arp(bindings: List[Dict], switch_id: int) -> int:
                     """
                     INSERT INTO ip_mac_bindings 
                     (ip_address, mac_address, switch_id, first_seen, last_seen, created_at, updated_at)
-                    VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     """,
                     (ip, mac, switch_id)
                 )

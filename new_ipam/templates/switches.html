@@ -6,10 +6,18 @@
 <div class="row mb-4">
     <div class="col d-flex justify-content-between align-items-center">
         <h2 class="mb-0"><i class="bi bi-hdd-rack me-2"></i>交换机管理</h2>
-        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#switchModal">
+        <button class="btn btn-primary" id="btn-add-switch" data-bs-toggle="modal" data-bs-target="#switchModal">
             <i class="bi bi-plus-circle me-1"></i>添加交换机
         </button>
     </div>
+</div>
+
+<!-- 数据源未就绪提示 -->
+<div id="ds-warning" class="alert alert-warning d-none mb-4" role="alert">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    数据源未就绪，无法添加交换机。请先前往
+    <a href="{{ url_for('system_page') }}" class="alert-link">系统配置</a>
+    完成数据源配置与初始化。
 </div>
 
 <!-- 统计卡片 -->
@@ -192,7 +200,26 @@
 document.addEventListener('DOMContentLoaded', function() {
     loadSwitches();
     loadStats();
+    checkDatasource();
 });
+
+// 数据源就绪检查：未就绪时禁用"添加交换机"并显示提示
+function checkDatasource() {
+    axios.get('/api/system/datasource/status')
+        .then(response => {
+            const st = response.data.status;
+            const btn = document.getElementById('btn-add-switch');
+            const warn = document.getElementById('ds-warning');
+            if (st.ready) {
+                btn.disabled = false;
+                warn.classList.add('d-none');
+            } else {
+                btn.disabled = true;
+                warn.classList.remove('d-none');
+            }
+        })
+        .catch(() => {});
+}
 
 function loadSwitches() {
     axios.get('/api/switches')
@@ -360,11 +387,17 @@ document.getElementById('save-switch-btn').addEventListener('click', function() 
                 document.getElementById('switch-id').value = '';
                 document.getElementById('switchModalLabel').textContent = '添加交换机';
             } else {
+                if (response.data.need_setup) {
+                    checkDatasource();
+                }
                 alert(response.data.message);
             }
         })
         .catch(error => {
-            alert('操作失败: ' + error.message);
+            if (error.response && error.response.data && error.response.data.need_setup) {
+                checkDatasource();
+            }
+            alert('操作失败: ' + (error.response && error.response.data && error.response.data.message || error.message));
         });
 });
 </script>
